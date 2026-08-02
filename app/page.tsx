@@ -75,6 +75,30 @@ type DailyBriefing = {
   };
 };
 
+type WeatherPayload = {
+  location: string;
+  updatedAt: string;
+  current: {
+    temperature: number;
+    apparentTemperature: number;
+    weatherCode: number;
+    label: string;
+    symbol: string;
+    windSpeed: number;
+  };
+  today: { max: number; min: number; rainChance: number };
+  forecast: Array<{
+    date: string;
+    weatherCode: number;
+    label: string;
+    symbol: string;
+    max: number;
+    min: number;
+    rainChance: number;
+  }>;
+  attribution: { label: string; url: string };
+};
+
 const BRIEFING_CACHE_KEY = "jarvis-briefing-cache-v1";
 const BRIEFING_HIDDEN_KEY = "jarvis-briefing-hidden-v1";
 const BRIEFING_SAVED_KEY = "jarvis-briefing-saved-v1";
@@ -595,6 +619,9 @@ export default function Home() {
   const [briefing, setBriefing] = useState<DailyBriefing | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [weather, setWeather] = useState<WeatherPayload | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const [hiddenBriefingIds, setHiddenBriefingIds] = useState<string[]>([]);
   const [savedBriefingIds, setSavedBriefingIds] = useState<string[]>([]);
   const [footerDate, setFooterDate] = useState("—");
@@ -652,10 +679,34 @@ export default function Home() {
     }
   }, []);
 
+  const loadWeather = useCallback(async (force = false) => {
+    setWeatherLoading(true);
+    setWeatherError(null);
+    try {
+      const response = await fetch(`/api/weather${force ? "?force=1" : ""}`, { cache: "no-store" });
+      const payload = await response.json() as WeatherPayload & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Das Wetter konnte nicht geladen werden.");
+      setWeather(payload);
+    } catch (error) {
+      setWeatherError(error instanceof Error ? error.message : "Das Wetter ist momentan nicht erreichbar.");
+    } finally {
+      setWeatherLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const startupCheck = window.setTimeout(() => void loadNotion(), 0);
     return () => window.clearTimeout(startupCheck);
   }, [loadNotion]);
+
+  useEffect(() => {
+    const startupWeather = window.setTimeout(() => void loadWeather(), 0);
+    const weatherInterval = window.setInterval(() => void loadWeather(), 30 * 60 * 1000);
+    return () => {
+      window.clearTimeout(startupWeather);
+      window.clearInterval(weatherInterval);
+    };
+  }, [loadWeather]);
 
   useEffect(() => {
     const startupBriefing = window.setTimeout(() => {
@@ -809,12 +860,33 @@ export default function Home() {
     <main className="jarvis-shell">
       <div className="grid-noise" aria-hidden="true" />
       <header className="topbar">
-        <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <div>
-            <strong>JARVIS</strong>
-            <span>PERSONAL KNOWLEDGE INTERFACE</span>
+        <div className="topbar-left">
+          <div className="brand-block">
+            <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+            <div>
+              <strong>JARVIS</strong>
+              <span>PERSONAL KNOWLEDGE INTERFACE</span>
+            </div>
           </div>
+          <section className={`weather-compact ${weatherLoading ? "is-loading" : ""}`} aria-live="polite" title={weatherError || undefined}>
+            {weather ? (
+              <>
+                <span className="weather-symbol" aria-hidden="true">{weather.current.symbol}</span>
+                <strong className="weather-temperature">{Math.round(weather.current.temperature)}°</strong>
+                <span className="weather-details">
+                  <b>{weather.location}</b>
+                  <small>
+                    {weather.current.label} · H {Math.round(weather.today.max)}° / T {Math.round(weather.today.min)}° · {Math.round(weather.today.rainChance)}% REGEN
+                    {" · "}<a href={weather.attribution.url} target="_blank" rel="noreferrer">OPEN-METEO</a>
+                  </small>
+                </span>
+              </>
+            ) : weatherError ? (
+              <button type="button" className="weather-retry" onClick={() => void loadWeather(true)}>WETTER OFFLINE · ↻</button>
+            ) : (
+              <><span className="weather-symbol" aria-hidden="true">○</span><span className="weather-loading-label">WETTER</span></>
+            )}
+          </section>
         </div>
         <div className="system-meta">
           <span className="prototype-label">VISUAL PROTOTYPE / 01</span>
