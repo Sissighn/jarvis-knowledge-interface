@@ -114,14 +114,13 @@ button { color: inherit; }
 .notion-status-button.connected i { background: #ffe0ee; box-shadow: 0 0 9px rgba(255, 180, 215, .86); }
 
 .visual-stage { position: absolute; inset: 82px 0 154px; }
-.neural-canvas { position: absolute; top: 0; bottom: 0; height: 100%; cursor: crosshair; touch-action: none; transition: left .35s ease, width .35s ease, opacity .35s ease; }
+.neural-canvas { position: absolute; top: 0; bottom: 0; display: block; height: 100%; cursor: crosshair; touch-action: none; transition: left .35s ease, width .35s ease, opacity .35s ease; }
 .neural-canvas.mode-core, .neural-canvas.mode-map {
   left: var(--left-rail);
   right: auto;
   width: calc(100% - var(--left-rail) - var(--right-rail));
 }
-.mode-core { cursor: grab; }
-.mode-core:active { cursor: grabbing; }
+.mode-core { cursor: default; }
 .mode-map { cursor: pointer; }
 
 .core-status {
