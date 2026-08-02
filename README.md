@@ -19,6 +19,7 @@ The project is designed to reduce friction rather than become another system tha
 - local TF-IDF and cosine-similarity analysis
 - automatically detected topic clusters and semantic relationships
 - personalized Morning Tech Briefing with up to ten relevant stories
+- live local weather with current conditions, daily range, and rain probability
 - local bookmarks, relevance feedback, and daily browser cache
 - responsive focus mode that removes side panels on smaller screens
 - read-only data access and no mandatory cloud database
@@ -49,6 +50,7 @@ The token stays in the ignored local environment file. It is read only by the lo
 | Knowledge engine | Builds graph edges from hierarchy, relations, mentions, TF-IDF, and cosine similarity |
 | Neural interface | Renders the animated core and interactive knowledge map on Canvas |
 | Briefing engine | Aggregates public sources, scores relevance, removes duplicates, and returns at most ten stories |
+| Weather service | Loads an Open-Meteo forecast on the local server and caches it for 30 minutes |
 | Local preferences | Stores the daily cache, saved stories, and hidden stories in the browser |
 
 ## Morning Tech Briefing
@@ -56,6 +58,18 @@ The token stays in the ignored local environment file. It is read only by the lo
 The briefing loads public feeds directly on the local server. It does not need an AI model, an API key, or a paid news API. JARVIS ranks stories against the current interest profile (AI/ML, coding agents, developer tools, local AI, and knowledge workflows), removes near-duplicates, and shows no more than ten relevant items.
 
 Techpresso is read through its public archive endpoint. Because that endpoint is not documented as a stable developer API, JARVIS treats it as optional: if it changes or is temporarily unavailable, the other sources continue to work and the last daily briefing remains in the browser cache.
+
+## Weather
+
+The compact header weather display uses [Open-Meteo](https://open-meteo.com/) and does not require an API key for this personal, non-commercial setup. It defaults to Berlin. To use another location, add its name, latitude, and longitude to `.env.local`:
+
+```bash
+WEATHER_LOCATION_NAME=Berlin
+WEATHER_LATITUDE=52.52
+WEATHER_LONGITUDE=13.405
+```
+
+Restart the development server after changing environment values.
 
 ## Privacy and cost
 
