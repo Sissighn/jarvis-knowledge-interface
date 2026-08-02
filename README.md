@@ -1,95 +1,137 @@
 # JARVIS — Personal Knowledge Interface
 
-[![Next.js](https://img.shields.io/badge/Next.js-16-111111?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![CI](https://github.com/Sissighn/jarvis-knowledge-interface/actions/workflows/ci.yml/badge.svg)](https://github.com/Sissighn/jarvis-knowledge-interface/actions/workflows/ci.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-16.2-111111?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-111111?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-111111?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 ![Local first](https://img.shields.io/badge/local--first-yes-f2b5d0)
-![AI API](https://img.shields.io/badge/paid_AI_API-not_required-f2b5d0)
-![Notion access](https://img.shields.io/badge/Notion-read--only-f2b5d0?logo=notion&logoColor=111111)
+![Paid AI API](https://img.shields.io/badge/paid_AI_API-not_required-f2b5d0)
 
-A local-first personal knowledge interface that turns selected Notion content into an interactive neural map and combines it with a private, relevance-ranked daily tech briefing.
+A local-first dashboard that turns selected Notion content into an interactive knowledge graph and combines it with focused tech news, weather, local search, and browser voice input.
 
-## Why this exists
+![JARVIS interface](./public/jarvis-interface.png)
 
-The project is designed to reduce friction rather than become another system that needs constant maintenance. It keeps Notion as the source of truth, derives useful connections locally, and surfaces a focused daily view without requiring a paid AI API.
+## Why JARVIS
 
-## Highlights
+JARVIS is designed to reduce information friction without creating another system to maintain. Notion remains the source of truth. The application reads only explicitly shared content, derives relationships locally, and brings the most useful context into one calm interface. No paid AI API is required for its current capabilities.
 
-- fluid, mouse-controlled neural core
-- interactive knowledge graph generated from selected Notion content
-- local TF-IDF and cosine-similarity analysis
-- local question search with ranked Notion matches, excerpts, and graph highlighting
-- browser speech input that sends recognized questions into the same local search
-- automatically detected topic clusters and semantic relationships
-- personalized Morning Tech Briefing with up to ten relevant stories
-- live local weather with current conditions, daily range, and rain probability
-- local bookmarks, relevance feedback, and daily browser cache
-- responsive focus mode that removes side panels on smaller screens
-- read-only data access and no mandatory cloud database
+## Features
 
-## Local start
+- animated, pointer-controlled neural core rendered with Canvas 2D
+- interactive map generated from selected Notion pages and data sources
+- hierarchy, relation, mention, and semantic-similarity graph edges
+- local TF-IDF retrieval and cosine-similarity ranking
+- deterministic topic clustering and collision-aware graph layout
+- typed and browser-native voice search across loaded knowledge
+- relevance-ranked daily tech briefing from multiple public sources
+- local story bookmarks, relevance feedback, and daily browser cache
+- current weather and four-day forecast from Open-Meteo
+- focused small-screen layout that prioritizes the core and knowledge map
+- read-only Notion access with server-only credentials
+
+## Architecture
+
+The application follows a feature-oriented structure. UI, domain types, server integrations, and pure algorithms are separated so each module has one clear responsibility.
+
+```text
+app/                         Next.js routes and API boundaries
+config/                      build integration
+features/
+  briefing/                  news aggregation, ranking, and types
+  interface/                 components, hooks, renderers, and styles
+  knowledge/                 Notion connector, graph algorithms, and search
+  weather/                   Open-Meteo client and types
+tests/
+  unit/                      deterministic domain tests
+  integration/               built-worker and security-boundary tests
+worker/                      Cloudflare/vinext runtime entry point
+```
+
+See [Architecture](./docs/ARCHITECTURE.md) for the data flows and design decisions.
+
+## Getting started
+
+### Requirements
+
+- Node.js 22.13 or newer
+- npm
+- an optional Notion internal integration for real workspace data
+
+### Installation
 
 ```bash
+git clone git@github.com:Sissighn/jarvis-knowledge-interface.git
+cd jarvis-knowledge-interface
 npm install
+cp .env.local.example .env.local
 npm run dev
 ```
 
-Then open the local URL printed by the development server.
+Open the local URL printed by the development server. Without Notion credentials, JARVIS starts with a small built-in sample graph.
 
-## Read-only Notion connection
+## Connect Notion safely
 
-1. Create an internal Notion integration and enable read-content access only.
-2. Add that connection to the Notion pages or databases Jarvis may read.
-3. Copy `.env.local.example` to `.env.local`.
-4. Put the integration token into `NOTION_ACCESS_TOKEN` and restart the local server.
+1. Create an internal Notion integration with read-content access only.
+2. Share only the pages or data sources JARVIS may read with that integration.
+3. Add the token to the ignored `.env.local` file.
+4. Restart the development server.
 
-The token stays in the ignored local environment file. It is read only by the local server and is never sent to the browser.
-
-## How it works
-
-| Layer | Responsibility |
-| --- | --- |
-| Notion connector | Reads only the pages and databases explicitly shared with the integration |
-| Knowledge engine | Builds graph edges from hierarchy, relations, mentions, TF-IDF, and cosine similarity |
-| Local question search | Ranks the loaded Notion pages for a typed or spoken query without an AI model |
-| Neural interface | Renders the animated core and interactive knowledge map on Canvas |
-| Briefing engine | Aggregates public sources, scores relevance, removes duplicates, and returns at most ten stories |
-| Weather service | Loads an Open-Meteo forecast on the local server and caches it for 30 minutes |
-| Local preferences | Stores the daily cache, saved stories, and hidden stories in the browser |
-
-## Morning Tech Briefing
-
-The briefing loads public feeds directly on the local server. It does not need an AI model, an API key, or a paid news API. JARVIS ranks stories against the current interest profile (AI/ML, coding agents, developer tools, local AI, and knowledge workflows), removes near-duplicates, and shows no more than ten relevant items.
-
-Techpresso is read through its public archive endpoint. Because that endpoint is not documented as a stable developer API, JARVIS treats it as optional: if it changes or is temporarily unavailable, the other sources continue to work and the last daily briefing remains in the browser cache.
-
-## Weather
-
-The compact header weather display uses [Open-Meteo](https://open-meteo.com/) and does not require an API key for this personal, non-commercial setup. It defaults to Berlin. To use another location, add its name, latitude, and longitude to `.env.local`:
-
-```bash
-WEATHER_LOCATION_NAME=Berlin
-WEATHER_LATITUDE=52.52
-WEATHER_LONGITUDE=13.405
+```dotenv
+NOTION_ACCESS_TOKEN=secret_your_internal_notion_token
+NOTION_MAX_PAGES=80
+NOTION_CONTENT_SCAN_LIMIT=40
 ```
 
-Restart the development server after changing environment values.
+The token is consumed only by server routes. It is never embedded in the browser bundle or stored in the repository.
+
+## Configure weather
+
+Weather uses [Open-Meteo](https://open-meteo.com/) and requires no API key for this personal setup. Berlin is the default. Override it in `.env.local`:
+
+```dotenv
+WEATHER_LOCATION_NAME=Regensburg
+WEATHER_LATITUDE=49.0134
+WEATHER_LONGITUDE=12.1016
+```
+
+## Data sources and local processing
+
+| Capability | Source | Processing |
+| --- | --- | --- |
+| Knowledge graph | Notion API | server-side parsing; local TF-IDF, clustering, and layout |
+| Knowledge search | loaded graph | entirely in the browser |
+| Tech briefing | OpenAI News, GitHub Changelog, Techpresso, Hacker News | server-side aggregation, scoring, and deduplication |
+| Weather | Open-Meteo | server-side fetch with a 30-minute memory cache |
+| Voice input | browser Speech Recognition API | availability and audio processing depend on the browser |
+| Preferences | browser storage | stays on the current device |
+
+Techpresso is an optional source because its public archive endpoint is undocumented. If it changes or becomes unavailable, the other sources and the last daily browser cache continue to work.
+
+## Quality checks
+
+```bash
+npm run lint
+npm run typecheck
+npm run test:unit
+npm run test:integration
+npm run check
+```
+
+`npm run check` executes the complete local CI pipeline. Integration tests build the application, verify server-rendered output, exercise the disconnected Notion state, and confirm that credentials remain behind the server boundary.
 
 ## Privacy and cost
 
-- no paid AI API is required
-- no Notion token is exposed to the browser
-- Notion access is read-only
-- saved and hidden briefing items remain on the current device
-- the app continues to work when an individual news source is unavailable
-- typed questions are searched locally in the Notion content already loaded by JARVIS
-- speech recognition availability and audio processing depend on the browser being used
+- no paid AI API or hosted database is required
+- the Notion token stays server-side and is excluded from Git
+- Notion access is intentionally read-only
+- saved and hidden stories remain on the current device
+- individual feed failures do not break the entire briefing
+- search and graph analysis do not send note content to an AI model
 
-## Current limitations
+## Current scope
 
-- the command bar retrieves relevant notes but does not generate synthesized answers yet
-- speech input and Notion write actions are intentionally not enabled
-- Techpresso uses a public but undocumented archive endpoint
+The command bar retrieves and ranks relevant notes; it does not synthesize new answers yet. JARVIS also does not write to Notion. Both choices keep the current system predictable, inexpensive, and privacy-conscious.
 
-## Tech stack
+## Technology
 
-Next.js, React, TypeScript, Canvas 2D, the Notion API, TF-IDF, cosine similarity, and public RSS/JSON feeds.
+Next.js 16, React 19, TypeScript, Canvas 2D, vinext, Cloudflare Workers, the Notion API, Open-Meteo, TF-IDF, and cosine similarity.
