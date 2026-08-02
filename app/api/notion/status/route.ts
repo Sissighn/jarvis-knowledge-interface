@@ -2,7 +2,7 @@ import {
   getNotionConnectionStatus,
   isNotionConfigured,
   NotionConnectionError,
-} from "../../../../lib/notion";
+} from "@/features/knowledge/server/notion";
 
 export async function GET() {
   if (!isNotionConfigured()) return Response.json({ configured: false, connected: false });

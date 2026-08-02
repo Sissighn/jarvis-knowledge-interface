@@ -1,4 +1,4 @@
-import { getWeather } from "../../../lib/weather";
+import { getWeather } from "@/features/weather/server/weather";
 
 export const dynamic = "force-dynamic";
 

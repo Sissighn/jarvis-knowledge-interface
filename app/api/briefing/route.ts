@@ -1,4 +1,4 @@
-import { buildDailyBriefing } from "../../../lib/briefing";
+import { buildDailyBriefing } from "@/features/briefing/server/briefing";
 
 export const dynamic = "force-dynamic";
 

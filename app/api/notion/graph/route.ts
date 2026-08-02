@@ -1,4 +1,4 @@
-import { buildNotionGraph, isNotionConfigured, NotionConnectionError } from "../../../../lib/notion";
+import { buildNotionGraph, isNotionConfigured, NotionConnectionError } from "@/features/knowledge/server/notion";
 
 export async function GET(request: Request) {
   if (!isNotionConfigured()) {
