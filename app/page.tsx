@@ -135,6 +135,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
     lastX: 0,
     lastY: 0,
   });
+  const coreBoundsRef = useRef({ x: 0, y: 0, radius: 0 });
   const mapPointsRef = useRef<Array<{ node: KnowledgeNode; x: number; y: number }>>([]);
   const hoveredNodeRef = useRef<string | null>(null);
 
@@ -148,6 +149,8 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
     let width = 0;
     let height = 0;
     let dpr = 1;
+    let backingWidth = 0;
+    let backingHeight = 0;
     let time = 0;
     let hoverX = 0;
     let hoverY = 0;
@@ -176,11 +179,16 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
-      width = rect.width;
-      height = rect.height;
+      width = Math.max(1, rect.width);
+      height = Math.max(1, rect.height);
       dpr = Math.min(window.devicePixelRatio || 1, 1.75);
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
+      const nextWidth = Math.floor(width * dpr);
+      const nextHeight = Math.floor(height * dpr);
+      if (backingWidth === nextWidth && backingHeight === nextHeight) return;
+      backingWidth = nextWidth;
+      backingHeight = nextHeight;
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       particles.forEach((particle) => { particle.trail.length = 0; });
     };
@@ -191,6 +199,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
       const baseRadius = Math.min(width, height) * (width < 720 ? 0.34 : 0.37);
       const statePulse = state === "listening" ? 1.07 : state === "thinking" ? 0.95 : 1;
       const pulse = statePulse + Math.sin(time * (state === "thinking" ? 3.2 : 1.2)) * 0.018;
+      coreBoundsRef.current = { x: cx, y: cy, radius: baseRadius * 1.02 * pulse };
       const projected: Array<{ x: number; y: number; z: number; a: number; bright: boolean; trail: Array<{ x: number; y: number }> }> = [];
       const flowSpeed = state === "thinking" ? 1.7 : state === "listening" ? 1.25 : 1;
       const rotation = rotationRef.current;
@@ -452,25 +461,37 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
     };
 
     resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
     window.addEventListener("resize", resize);
     draw();
     return () => {
       cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
     };
   }, [state, mode, nodes, edges, selectedNodeId]);
+
+  const isInsideCore = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const bounds = coreBoundsRef.current;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    return bounds.radius > 0 && Math.hypot(x - bounds.x, y - bounds.y) <= bounds.radius;
+  };
 
   const updatePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const localX = event.clientX - rect.left;
     const localY = event.clientY - rect.top;
-    pointerRef.current = {
-      x: (localX / rect.width - 0.5) * 2,
-      y: (localY / rect.height - 0.5) * 2,
-      active: true,
-    };
     if (mode === "core") {
       const rotation = rotationRef.current;
+      const insideCore = isInsideCore(event);
+      pointerRef.current = {
+        x: (localX / rect.width - 0.5) * 2,
+        y: (localY / rect.height - 0.5) * 2,
+        active: insideCore && !rotation.dragging,
+      };
       if (rotation.dragging) {
         const deltaX = event.clientX - rotation.lastX;
         const deltaY = event.clientY - rotation.lastY;
@@ -481,9 +502,14 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
         rotation.lastX = event.clientX;
         rotation.lastY = event.clientY;
       }
-      event.currentTarget.style.cursor = rotation.dragging ? "grabbing" : "grab";
+      event.currentTarget.style.cursor = rotation.dragging ? "grabbing" : insideCore ? "grab" : "default";
       return;
     }
+    pointerRef.current = {
+      x: (localX / rect.width - 0.5) * 2,
+      y: (localY / rect.height - 0.5) * 2,
+      active: true,
+    };
     if (mode === "map") {
       const closest = mapPointsRef.current
         .map((point) => ({ point, distance: Math.hypot(point.x - localX, point.y - localY) }))
@@ -509,6 +535,11 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
       selectMapNode(event);
       return;
     }
+    if (!isInsideCore(event)) {
+      pointerRef.current.active = false;
+      event.currentTarget.style.cursor = "default";
+      return;
+    }
     const rotation = rotationRef.current;
     rotation.dragging = true;
     rotation.lastX = event.clientX;
@@ -525,7 +556,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    event.currentTarget.style.cursor = "grab";
+    event.currentTarget.style.cursor = isInsideCore(event) ? "grab" : "default";
   };
 
   return (
@@ -538,7 +569,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
         pointerRef.current.active = false;
         hoveredNodeRef.current = null;
         event.currentTarget.style.cursor = mode === "core"
-          ? rotationRef.current.dragging ? "grabbing" : "grab"
+          ? rotationRef.current.dragging ? "grabbing" : "default"
           : "crosshair";
       }}
       onPointerDown={startCanvasInteraction}
