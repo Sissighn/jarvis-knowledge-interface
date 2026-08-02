@@ -1,9 +1,44 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KnowledgeSearchResult, searchKnowledge } from "../lib/knowledge-search";
 
 type CoreState = "idle" | "listening" | "thinking";
 type ViewMode = "core" | "map";
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = Event & {
+  resultIndex: number;
+  results: { length: number; [index: number]: SpeechRecognitionResultLike };
+};
+
+type SpeechRecognitionErrorEventLike = Event & { error: string };
+
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 type KnowledgeNode = {
   id: string;
@@ -138,12 +173,13 @@ const demoGraphEdges: KnowledgeEdge[] = [
   { source: "notion", target: "productivity", type: "relation" },
 ];
 
-function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
+function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, onSelect }: {
   state: CoreState;
   mode: ViewMode;
   nodes: KnowledgeNode[];
   edges: KnowledgeEdge[];
   selectedNodeId: string;
+  highlightedNodeIds: string[];
   onSelect: (node: KnowledgeNode) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -384,6 +420,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
       mapPointsRef.current = positions.map((node) => ({ node, x: node.px, y: node.py }));
       const positionById = new Map(positions.map((node) => [node.id, node]));
       const selected = positionById.get(selectedNodeId);
+      const searchMatches = new Set(highlightedNodeIds);
       const focusActive = Boolean(selected && selected.kind !== "system");
       const relatedIds = new Set<string>([selectedNodeId]);
       for (const edge of edges) {
@@ -416,9 +453,10 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
       positions.forEach((node, index) => {
         const isDirectlyRelated = relatedIds.has(node.id);
         const isSameCluster = focusActive && node.group === selected?.group;
-        context.globalAlpha = !focusActive || isDirectlyRelated ? 1 : isSameCluster ? 0.62 : 0.24;
+        const isSearchMatch = searchMatches.has(node.id);
+        context.globalAlpha = isSearchMatch || !focusActive || isDirectlyRelated ? 1 : isSameCluster ? 0.62 : 0.24;
         const pulse = 1 + Math.sin(time * 1.4 + index) * 0.14;
-        const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current;
+        const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current || isSearchMatch;
         const glowRadius = node.size * (isActive ? 6.2 : 4.1) * pulse;
         const glow = context.createRadialGradient(node.px, node.py, 0, node.px, node.py, glowRadius);
         glow.addColorStop(0, "rgba(255,248,251,.92)");
@@ -432,25 +470,32 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
         context.beginPath();
         context.arc(node.px, node.py, node.size * 0.5, 0, Math.PI * 2);
         context.fill();
+        if (isSearchMatch) {
+          context.strokeStyle = "rgba(255, 210, 232, .72)";
+          context.lineWidth = node.id === selectedNodeId ? 1.4 : .75;
+          context.beginPath();
+          context.arc(node.px, node.py, node.size * 2.15 + 4, 0, Math.PI * 2);
+          context.stroke();
+        }
       });
       context.globalAlpha = 1;
 
       const labelBoxes: Array<{ left: number; right: number; top: number; bottom: number }> = [];
       const labelCandidates = positions
         .filter((node) => {
-          const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current;
+          const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current || searchMatches.has(node.id);
           if (isActive || node.kind === "system") return true;
           if (focusActive) return (relatedIds.has(node.id) || node.group === selected?.group) && node.size >= 3.7;
           return node.size >= 4.55;
         })
         .sort((a, b) => {
-          const aPriority = a.id === selectedNodeId ? 100 : a.id === hoveredNodeRef.current ? 90 : a.kind === "system" ? 80 : a.size;
-          const bPriority = b.id === selectedNodeId ? 100 : b.id === hoveredNodeRef.current ? 90 : b.kind === "system" ? 80 : b.size;
+          const aPriority = a.id === selectedNodeId ? 100 : searchMatches.has(a.id) ? 95 : a.id === hoveredNodeRef.current ? 90 : a.kind === "system" ? 80 : a.size;
+          const bPriority = b.id === selectedNodeId ? 100 : searchMatches.has(b.id) ? 95 : b.id === hoveredNodeRef.current ? 90 : b.kind === "system" ? 80 : b.size;
           return bPriority - aPriority;
         });
 
       for (const node of labelCandidates) {
-        const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current;
+        const isActive = node.id === selectedNodeId || node.id === hoveredNodeRef.current || searchMatches.has(node.id);
         const fontSize = isActive || node.kind === "system" ? 12 : 10;
         context.font = `${fontSize}px var(--font-geist-mono), monospace`;
         context.letterSpacing = ".3px";
@@ -494,7 +539,7 @@ function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, onSelect }: {
       resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [state, mode, nodes, edges, selectedNodeId]);
+  }, [state, mode, nodes, edges, selectedNodeId, highlightedNodeIds]);
 
   const isInsideCore = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -607,7 +652,10 @@ export default function Home() {
   const [state, setState] = useState<CoreState>("idle");
   const [mode, setMode] = useState<ViewMode>("core");
   const [query, setQuery] = useState("");
-  const [response, setResponse] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[] | null>(null);
+  const [searchQuestion, setSearchQuestion] = useState("");
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const [nodes, setNodes] = useState<KnowledgeNode[]>(demoKnowledgeNodes);
   const [edges, setEdges] = useState<KnowledgeEdge[]>(demoGraphEdges);
   const [selectedNode, setSelectedNode] = useState<KnowledgeNode>(demoKnowledgeNodes[0]);
@@ -626,6 +674,8 @@ export default function Home() {
   const [savedBriefingIds, setSavedBriefingIds] = useState<string[]>([]);
   const [footerDate, setFooterDate] = useState("—");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const finalTranscriptRef = useRef("");
 
   const loadNotion = useCallback(async (force = false) => {
     setSyncing(true);
@@ -778,6 +828,80 @@ export default function Home() {
     [visibleBriefingItems],
   );
 
+  const highlightedNodeIds = useMemo(
+    () => searchResults?.map((result) => result.nodeId) ?? [],
+    [searchResults],
+  );
+
+  const executeQuery = useCallback((rawQuery: string) => {
+    const cleanQuery = rawQuery.trim();
+    if (!cleanQuery) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setQuery(cleanQuery);
+    setSearchQuestion(cleanQuery);
+    setSearchResults(null);
+    setState("thinking");
+
+    timerRef.current = setTimeout(() => {
+      const results = searchKnowledge(nodes, cleanQuery, 5);
+      setSearchResults(results);
+      setState("idle");
+      if (results.length) {
+        const firstNode = nodes.find((node) => node.id === results[0].nodeId);
+        if (firstNode) setSelectedNode(firstNode);
+        setMode("map");
+      }
+    }, 260);
+  }, [nodes]);
+
+  useEffect(() => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const supportTimer = window.setTimeout(() => setSpeechSupported(Boolean(Recognition)), 0);
+    if (!Recognition) return () => window.clearTimeout(supportTimer);
+
+    const recognition = new Recognition();
+    recognition.lang = "de-DE";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.onstart = () => {
+      finalTranscriptRef.current = "";
+      setSpeechError(null);
+      setState("listening");
+    };
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      let finalTranscript = "";
+      for (let index = event.resultIndex; index < event.results.length; index++) {
+        const transcript = event.results[index][0]?.transcript ?? "";
+        if (event.results[index].isFinal) finalTranscript += transcript;
+        else interimTranscript += transcript;
+      }
+      if (finalTranscript.trim()) finalTranscriptRef.current = finalTranscript.trim();
+      setQuery((finalTranscript || interimTranscript).trim());
+    };
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && event.error !== "no-speech") {
+        setSpeechError(event.error === "not-allowed"
+          ? "Mikrofonzugriff wurde nicht erlaubt."
+          : "Die Spracheingabe konnte dich nicht verstehen.");
+      }
+      setState("idle");
+    };
+    recognition.onend = () => {
+      setState("idle");
+      const transcript = finalTranscriptRef.current;
+      finalTranscriptRef.current = "";
+      if (transcript) executeQuery(transcript);
+    };
+    recognitionRef.current = recognition;
+    return () => {
+      window.clearTimeout(supportTimer);
+      recognition.onend = null;
+      recognition.abort();
+      recognitionRef.current = null;
+    };
+  }, [executeQuery]);
+
   const hideBriefingItem = (id: string) => {
     setHiddenBriefingIds((current) => {
       const next = [...new Set([...current, id])];
@@ -831,26 +955,24 @@ export default function Home() {
 
   const runQuery = (event: FormEvent) => {
     event.preventDefault();
-    const cleanQuery = query.trim();
-    if (!cleanQuery) return;
-    setState("thinking");
-    setResponse(null);
-    timerRef.current = setTimeout(() => {
-      setState("idle");
-      setResponse(`Ich habe 7 relevante Notizen zu „${cleanQuery}“ in Universität, Projekte und Ideen gefunden.`);
-    }, 1500);
+    executeQuery(query);
   };
 
   const toggleListening = () => {
     if (state === "listening") {
-      setState("thinking");
-      timerRef.current = setTimeout(() => {
-        setState("idle");
-        setResponse("Gedanke erkannt. Im nächsten Schritt würde daraus eine Notion-Notiz oder Aufgabe entstehen.");
-      }, 1200);
-    } else {
-      setResponse(null);
-      setState("listening");
+      recognitionRef.current?.stop();
+      return;
+    }
+    if (!speechSupported || !recognitionRef.current) {
+      setSpeechError("Dieser Browser stellt keine Spracheingabe bereit.");
+      return;
+    }
+    setSearchResults(null);
+    setSpeechError(null);
+    try {
+      recognitionRef.current.start();
+    } catch {
+      setSpeechError("Die Spracheingabe ist bereits aktiv.");
     }
   };
 
@@ -918,6 +1040,7 @@ export default function Home() {
           nodes={nodes}
           edges={edges}
           selectedNodeId={selectedNode.id}
+          highlightedNodeIds={highlightedNodeIds}
           onSelect={setSelectedNode}
         />
         {mode === "core" && (
@@ -1008,7 +1131,44 @@ export default function Home() {
       </nav>
 
       <section className="command-area">
-        {response && <div className="response-line"><span>J</span><p>{response}</p><button onClick={() => setResponse(null)} aria-label="Antwort schließen">×</button></div>}
+        {searchResults && (
+          <section className="search-response" aria-live="polite" aria-label="Ergebnisse der Wissenssuche">
+            <header>
+              <div>
+                <span>{notionStatus.connected ? "LOKALE NOTION-SUCHE" : "LOKALE DEMO-SUCHE"}</span>
+                <strong>{searchResults.length
+                  ? `${searchResults.length} passende ${searchResults.length === 1 ? "Notiz" : "Notizen"}`
+                  : "Keine passende Notiz gefunden"}</strong>
+              </div>
+              <button onClick={() => setSearchResults(null)} aria-label="Suchergebnisse schließen">×</button>
+            </header>
+            <p className="search-question">„{searchQuestion}“</p>
+            {searchResults.length ? (
+              <div className="search-result-list">
+                {searchResults.map((result, index) => (
+                  <article className={selectedNode.id === result.nodeId ? "is-selected" : ""} key={result.nodeId}>
+                    <button type="button" onClick={() => {
+                      const node = nodes.find((candidate) => candidate.id === result.nodeId);
+                      if (node) setSelectedNode(node);
+                      setMode("map");
+                    }}>
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <div>
+                        <strong>{result.label}</strong>
+                        <small>{result.group} · {Math.round(result.score * 100)}% MATCH</small>
+                        <p>{result.snippet}</p>
+                      </div>
+                    </button>
+                    {result.url ? <a href={result.url} target="_blank" rel="noreferrer" aria-label={`${result.label} in Notion öffnen`}>↗</a> : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="search-empty">Versuche einen konkreteren Begriff aus dem Titel oder Inhalt deiner Notizen.</p>
+            )}
+          </section>
+        )}
+        {speechError && <div className="speech-error" role="status">{speechError}<button onClick={() => setSpeechError(null)} aria-label="Hinweis schließen">×</button></div>}
         <form className="command-bar" onSubmit={runQuery}>
           <span className="prompt-symbol">›</span>
           <input
@@ -1018,7 +1178,13 @@ export default function Home() {
             aria-label="Jarvis befragen"
           />
           <span className="key-hint">ENTER</span>
-          <button type="button" className={`mic-button ${state === "listening" ? "active" : ""}`} onClick={toggleListening} aria-label={state === "listening" ? "Aufnahme beenden" : "Spracheingabe starten"}>
+          <button
+            type="button"
+            className={`mic-button ${state === "listening" ? "active" : ""} ${!speechSupported ? "unsupported" : ""}`}
+            onClick={toggleListening}
+            aria-label={state === "listening" ? "Aufnahme beenden" : "Spracheingabe starten"}
+            title={speechSupported ? "Frage sprechen" : "Spracheingabe wird von diesem Browser nicht bereitgestellt"}
+          >
             <span className="mic-icon" />
           </button>
         </form>
