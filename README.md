@@ -17,6 +17,8 @@ The project is designed to reduce friction rather than become another system tha
 - fluid, mouse-controlled neural core
 - interactive knowledge graph generated from selected Notion content
 - local TF-IDF and cosine-similarity analysis
+- local question search with ranked Notion matches, excerpts, and graph highlighting
+- browser speech input that sends recognized questions into the same local search
 - automatically detected topic clusters and semantic relationships
 - personalized Morning Tech Briefing with up to ten relevant stories
 - live local weather with current conditions, daily range, and rain probability
@@ -48,6 +50,7 @@ The token stays in the ignored local environment file. It is read only by the lo
 | --- | --- |
 | Notion connector | Reads only the pages and databases explicitly shared with the integration |
 | Knowledge engine | Builds graph edges from hierarchy, relations, mentions, TF-IDF, and cosine similarity |
+| Local question search | Ranks the loaded Notion pages for a typed or spoken query without an AI model |
 | Neural interface | Renders the animated core and interactive knowledge map on Canvas |
 | Briefing engine | Aggregates public sources, scores relevance, removes duplicates, and returns at most ten stories |
 | Weather service | Loads an Open-Meteo forecast on the local server and caches it for 30 minutes |
@@ -78,10 +81,12 @@ Restart the development server after changing environment values.
 - Notion access is read-only
 - saved and hidden briefing items remain on the current device
 - the app continues to work when an individual news source is unavailable
+- typed questions are searched locally in the Notion content already loaded by JARVIS
+- speech recognition availability and audio processing depend on the browser being used
 
 ## Current limitations
 
-- the command bar is a visual interaction layer and is not connected to a language model yet
+- the command bar retrieves relevant notes but does not generate synthesized answers yet
 - speech input and Notion write actions are intentionally not enabled
 - Techpresso uses a public but undocumented archive endpoint
 
