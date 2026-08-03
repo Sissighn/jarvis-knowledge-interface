@@ -109,4 +109,4 @@ The Tauri process owns every child it starts and terminates those children durin
 - integration tests run against the built worker and verify SSR plus the Notion credential boundary
 - the desktop sidecar is smoke-tested against server-rendered HTML, bundled assets, and API routes
 - `cargo check` validates the native shell on the primary Apple Silicon development environment
-- GitHub Actions runs the complete check pipeline on pushes and pull requests
+- GitHub Actions runs isolated web and Apple Silicon desktop jobs on pushes and pull requests

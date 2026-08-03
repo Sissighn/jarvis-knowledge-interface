@@ -221,10 +221,11 @@ npm run lint
 npm run typecheck
 npm run test:unit
 npm run test:integration
+npm run desktop:check
 npm run check
 ```
 
-`npm run check` executes the complete local CI pipeline. Integration tests build the application, verify server-rendered output, exercise the disconnected Notion state, and confirm that credentials remain behind the server boundary.
+`npm run check` executes the complete local web-quality pipeline. Integration tests build the application, verify server-rendered output, exercise the disconnected Notion state, and confirm that credentials remain behind the server boundary. GitHub Actions additionally builds the desktop sidecar and runs Rust formatting plus Tauri compilation checks on an Apple Silicon macOS runner.
 
 ## Useful commands
 
