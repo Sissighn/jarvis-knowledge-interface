@@ -34,6 +34,39 @@ test("returns a safe disconnected Notion status without local credentials", asyn
   assert.deepEqual(await response.json(), { configured: false, connected: false });
 });
 
+test("exposes a stable local-model status contract", async () => {
+  const response = await request("/api/ai/status", "application/json");
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.provider, "ollama");
+  assert.equal(typeof payload.connected, "boolean");
+  assert.equal(typeof payload.modelAvailable, "boolean");
+  assert.equal(typeof payload.model, "string");
+});
+
+test("exposes a stable local speech status contract", async () => {
+  const response = await request("/api/speech/status", "application/json");
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.provider, "whisper.cpp");
+  assert.equal(typeof payload.connected, "boolean");
+  assert.equal(typeof payload.model, "string");
+});
+
+test("rejects an invalid transcription upload before contacting Whisper", async () => {
+  const workerUrl = new URL("../../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-speech-upload`);
+  const { default: worker } = await import(workerUrl.href);
+  const form = new FormData();
+  form.append("audio", new Blob(["not audio"], { type: "text/plain" }), "note.txt");
+  const response = await worker.fetch(
+    new Request("http://localhost/api/speech/transcribe", { method: "POST", body: form }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(response.status, 400);
+});
+
 test("keeps the Notion token on the server side", async () => {
   const [page, notion, gitignore] = await Promise.all([
     readFile(new URL("../../features/interface/components/JarvisInterface.tsx", import.meta.url), "utf8"),
