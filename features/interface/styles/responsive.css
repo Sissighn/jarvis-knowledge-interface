@@ -1,0 +1,106 @@
+/** Responsive adaptations for the JARVIS interface. */
+@media (max-width: 1180px) {
+  :root {
+    --left-rail: 24px;
+    --right-rail: 350px;
+  }
+  .index-panel { display: none; }
+  .context-panel, .briefing-panel { right: 20px; width: 310px; }
+  .weather-details small { max-width: 220px; }
+}
+
+@media (max-width: 820px) {
+  :root {
+    --left-rail: 20px;
+    --right-rail: 20px;
+  }
+  .topbar { padding: 0 20px; }
+  .topbar-left { gap: 16px; }
+  .weather-compact { padding-left: 16px; }
+  .weather-details small { max-width: 180px; }
+  .briefing-panel, .context-panel { display: none; }
+  .neural-canvas.mode-core, .neural-canvas.mode-map { left: 20px; right: auto; width: calc(100% - 40px); opacity: 1; }
+  .mode-switcher, .command-area, .core-status, .core-copy { left: 50%; }
+  .command-area { width: min(720px, calc(100vw - 40px)); }
+  .visual-stage { bottom: 154px; }
+  .footer-line { inset-inline: 20px; }
+}
+
+@media (max-width: 680px) {
+  :root {
+    --left-rail: 16px;
+    --right-rail: 16px;
+  }
+  .neural-canvas.mode-core, .neural-canvas.mode-map { left: 16px; right: auto; width: calc(100% - 32px); opacity: 1; }
+  .mode-switcher { left: 50%; }
+  .briefing-panel, .context-panel {
+    top: 124px;
+    right: 16px;
+    bottom: 205px;
+    left: 16px;
+    width: auto;
+    max-height: none;
+    padding: 14px;
+    transform: translateY(8px);
+    background: rgba(11, 6, 9, .96);
+  }
+  .briefing-panel.is-visible, .context-panel.is-visible { transform: none; }
+  .command-area { left: 50%; width: calc(100vw - 32px); }
+  .core-status, .core-copy { left: 50%; opacity: .25; }
+}
+
+@media (max-height: 760px) and (min-width: 681px) {
+  .briefing-panel { top: 140px; bottom: 148px; }
+  .index-panel, .context-panel { max-height: calc(100svh - 300px); }
+  .command-area { bottom: 45px; }
+  .quick-prompts { display: none; }
+  .visual-stage { bottom: 126px; }
+}
+
+@media (max-width: 580px) {
+  .jarvis-shell { min-height: 560px; }
+  .topbar { height: 62px; }
+  .brand-block > div span, .system-meta, .weather-details { display: none; }
+  .brand-block { gap: 10px; }
+  .topbar-left { width: 100%; justify-content: space-between; gap: 10px; }
+  .weather-compact { grid-template-columns: auto auto; gap: 5px; padding-left: 12px; }
+  .weather-symbol { width: 17px; font-size: 15px; }
+  .weather-temperature { font-size: 15px; }
+  .weather-retry { font-size: 7px; }
+  .visual-stage { inset: 62px 0 138px; }
+  .mode-switcher { top: 76px; }
+  .context-panel p, .context-stats, .text-action, .keyword-list { display: none; }
+  .context-panel h2 { margin: 0; font-size: 16px; }
+  .briefing-header { padding-bottom: 10px; }
+  .briefing-header h2 { font-size: 16px; }
+  .briefing-refresh { width: 28px; height: 28px; flex-basis: 28px; }
+  .briefing-group { margin-top: 12px; }
+  .briefing-card { padding: 12px 0; }
+  .briefing-card p, .briefing-topics, .glossary-card, .briefing-sources { display: none; }
+  .eyebrow { margin-bottom: 5px; }
+  .command-area { bottom: 43px; width: calc(100vw - 32px); }
+  .command-bar { height: 48px; }
+  .send-button, .mic-button { height: 46px; }
+  .send-button { width: 42px; }
+  .mic-button { width: 46px; }
+  .answer-panel { max-height: 38svh; padding: 12px; }
+  .answer-evidence p { font-size: 9px; }
+  .answer-source-button { padding-block: 8px; }
+  .model-progress { grid-template-columns: auto 1fr; font-size: 6px; }
+  .model-progress > b { display: none; }
+  .quick-prompts { gap: 10px; overflow: hidden; justify-content: flex-start; }
+  .quick-prompts button { flex: none; }
+  .footer-line { inset-inline: 16px; height: 28px; }
+  .footer-line span:nth-child(2) { display: none; }
+  .setup-backdrop { padding: 12px; }
+  .setup-panel { max-height: calc(100svh - 24px); padding: 20px; }
+  .connected-summary { grid-template-columns: 1fr; }
+  .connected-summary div { grid-template-columns: 50px 1fr; align-items: baseline; border-right: 0; border-bottom: 1px solid var(--line); }
+  .connected-summary div:last-child { border-bottom: 0; }
+  .setup-actions { flex-direction: column; }
+  .setup-actions button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}

@@ -1,0 +1,64 @@
+/** Grounded knowledge-answer panel. */
+.answer-panel {
+  max-height: min(440px, 52svh);
+  overflow: auto;
+  margin-bottom: 8px;
+  padding: 17px;
+  border: 1px solid rgba(255, 201, 227, .22);
+  border-radius: 4px;
+  background: radial-gradient(circle at 90% 0%, rgba(228, 139, 181, .08), transparent 34%), rgba(10, 6, 8, .96);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .62);
+  backdrop-filter: blur(22px);
+  animation: answerIn .3s ease both;
+  scrollbar-color: rgba(242, 174, 206, .28) transparent;
+}
+.answer-panel.status-uncertain { border-color: rgba(226, 177, 199, .2); }
+.answer-panel.status-not_found { border-color: rgba(204, 157, 178, .18); }
+@keyframes answerIn { from { opacity: 0; transform: translateY(6px); } }
+
+.answer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.answer-header > div:first-child { display: grid; gap: 5px; }
+.answer-header span, .answer-header strong, .answer-evidence small, .answer-sources > span, .answer-sources small { font-family: var(--font-geist-mono), monospace; }
+.answer-header > div:first-child > span { color: #ae929f; font-size: 7px; letter-spacing: .16em; }
+.answer-header strong { color: #f9e2ed; font-size: 11px; font-weight: 520; letter-spacing: .045em; }
+.answer-header-actions { display: flex; align-items: center; gap: 10px; }
+.confidence-badge { padding: 5px 7px; border: 1px solid rgba(255, 213, 233, .14); color: #bda3af; font-size: 7px; letter-spacing: .1em; white-space: nowrap; }
+.answer-header-actions > button { padding: 0; border: 0; background: none; color: #947b87; font-size: 18px; cursor: pointer; }
+.answer-header-actions > button:hover { color: #ffe4f0; }
+
+.answer-question { margin: 13px 0 0; color: #9e8591; font-size: 10px; line-height: 1.5; }
+.answer-summary { margin: 12px 0; color: #e6d0da; font-size: 11px; line-height: 1.62; }
+.answer-panel.is-generated .answer-summary {
+  max-width: 92ch;
+  margin: 15px 0 17px;
+  color: #f1dce6;
+  font-size: 12px;
+  line-height: 1.72;
+}
+.answer-evidence { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.answer-evidence li { border: 1px solid rgba(255, 215, 234, .095); background: rgba(255, 214, 234, .025); }
+.answer-evidence li:hover { border-color: rgba(255, 215, 234, .18); background: rgba(255, 210, 232, .045); }
+.answer-evidence button { width: 100%; display: grid; grid-template-columns: 23px 1fr; gap: 3px 9px; padding: 10px 11px; border: 0; background: none; text-align: left; cursor: pointer; }
+.answer-evidence button > span { grid-row: 1 / 3; padding-top: 2px; color: #8d6f7d; font: 7px var(--font-geist-mono), monospace; }
+.answer-evidence p { margin: 0; color: #d4bdc8; font-size: 10px; line-height: 1.5; }
+.answer-evidence small { color: #927582; font-size: 7px; letter-spacing: .07em; }
+.answer-caveat { margin: 11px 0 0; padding-left: 9px; border-left: 1px solid rgba(255, 197, 224, .22); color: #957c88; font-size: 8px; line-height: 1.5; }
+
+.answer-sources { margin-top: 14px; border-top: 1px solid rgba(255, 216, 235, .1); }
+.answer-sources > span { display: block; padding: 10px 0 4px; color: #9d808d; font-size: 7px; letter-spacing: .14em; }
+.answer-sources article { position: relative; border-bottom: 1px solid rgba(255, 216, 235, .075); transition: background .2s ease; }
+.answer-sources article.is-selected { background: rgba(255, 196, 224, .045); }
+.answer-sources article.is-cited {
+  border-left: 1px solid rgba(255, 193, 222, .42);
+  background: linear-gradient(90deg, rgba(255, 191, 221, .07), transparent 54%);
+}
+.answer-sources article.is-cited .answer-source-button { padding-left: 8px; }
+.answer-sources article:hover { background: rgba(255, 211, 232, .035); }
+.answer-source-button { width: 100%; display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 9px 28px 9px 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.answer-source-button > span { padding-top: 2px; color: #806b75; font: 7px var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.answer-source-button > div { min-width: 0; display: grid; gap: 3px; }
+.answer-source-button strong { overflow: hidden; color: #dec6d2; font-size: 10px; font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
+.answer-source-button small { color: #8c727e; font-size: 7px; letter-spacing: .07em; }
+.answer-sources article > a { position: absolute; top: 11px; right: 5px; color: #9c818e; text-decoration: none; }
+.answer-sources article > a:hover { color: #ffe3f0; }
+.answer-panel button:focus-visible, .answer-panel a:focus-visible { outline: 1px solid rgba(255, 220, 237, .5); outline-offset: 2px; }
