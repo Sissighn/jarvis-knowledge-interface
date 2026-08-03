@@ -1,20 +1,25 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "JARVIS — Personal Knowledge Interface",
-  description: "A visual, neural interface for your Notion knowledge.",
+  description: "A local-first interface for Notion knowledge, semantic graph exploration, and focused daily context.",
+  applicationName: "JARVIS",
+  keywords: ["Notion", "knowledge graph", "local-first", "TF-IDF", "personal knowledge management"],
+  authors: [{ name: "Setayesh", url: "https://github.com/Sissighn" }],
+  openGraph: {
+    title: "JARVIS — Personal Knowledge Interface",
+    description: "Explore Notion knowledge as an interactive semantic graph.",
+    images: [{ url: "/jarvis-interface.png", width: 1668, height: 943, alt: "JARVIS knowledge interface" }],
+    type: "website",
+  },
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="de">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
