@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "default",
+  "description": "Minimal native permissions for the loopback-hosted JARVIS interface.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:4317/*"]
+  },
+  "permissions": [
+    "core:default",
+    "notification:default"
+  ]
+}
