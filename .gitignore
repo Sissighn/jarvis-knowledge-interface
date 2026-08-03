@@ -43,3 +43,19 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.desktop-build/
+/src-tauri/target/
+/src-tauri/target.noindex/
+/src-tauri/binaries/*
+!/src-tauri/binaries/.gitkeep
+/src-tauri/icons/64x64.png
+/src-tauri/icons/StoreLogo.png
+/src-tauri/icons/Square*Logo.png
+/src-tauri/icons/android/
+/src-tauri/icons/icon.ico
+/src-tauri/icons/icon.png
+/src-tauri/icons/ios/
+
+# local speech models
+/models/whisper/*.bin
+/public/fonts/
