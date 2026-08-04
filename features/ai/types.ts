@@ -12,6 +12,20 @@ export type ModelContext = {
   label: string;
   group: string;
   content: string;
+  retrievalScore: number;
+  matchedTerms: string[];
+};
+
+export type ConversationTurn = {
+  question: string;
+  answer: string;
+  sourceNodeIds: string[];
+};
+
+export type GroundingReport = {
+  acceptedClaims: number;
+  rejectedClaims: number;
+  supportRatio: number;
 };
 
 export type GeneratedAnswer = {
@@ -20,4 +34,5 @@ export type GeneratedAnswer = {
   answer: string;
   citations: number[];
   grounded: boolean;
+  grounding?: GroundingReport;
 };
