@@ -5,7 +5,7 @@
     --right-rail: 350px;
   }
   .index-panel { display: none; }
-  .context-panel, .briefing-panel { right: 20px; width: 310px; }
+  .context-panel, .briefing-panel, .vocabulary-carousel { right: 20px; width: 310px; }
   .weather-details small { max-width: 220px; }
 }
 
@@ -18,7 +18,7 @@
   .topbar-left { gap: 16px; }
   .weather-compact { padding-left: 16px; }
   .weather-details small { max-width: 180px; }
-  .briefing-panel, .context-panel { display: none; }
+  .briefing-panel, .vocabulary-carousel, .context-panel { display: none; }
   .neural-canvas.mode-core, .neural-canvas.mode-map { left: 20px; right: auto; width: calc(100% - 40px); opacity: 1; }
   .mode-switcher, .command-area, .core-status, .core-copy { left: 50%; }
   .command-area { width: min(720px, calc(100vw - 40px)); }
@@ -50,11 +50,18 @@
 }
 
 @media (max-height: 760px) and (min-width: 681px) {
-  .briefing-panel { top: 140px; bottom: 148px; }
   .index-panel, .context-panel { max-height: calc(100svh - 300px); }
   .command-area { bottom: 45px; }
   .quick-prompts { display: none; }
   .visual-stage { bottom: 126px; }
+}
+
+@media (max-height: 820px) and (min-width: 821px) {
+  :root {
+    --right-panel-top: 110px;
+    --right-panel-gap: 12px;
+    --right-panel-height: calc((100svh - 252px) / 2);
+  }
 }
 
 @media (max-width: 580px) {
@@ -76,7 +83,7 @@
   .briefing-refresh { width: 28px; height: 28px; flex-basis: 28px; }
   .briefing-group { margin-top: 12px; }
   .briefing-card { padding: 12px 0; }
-  .briefing-card p, .briefing-topics, .glossary-card, .briefing-sources { display: none; }
+  .briefing-card p, .briefing-topics, .briefing-sources { display: none; }
   .eyebrow { margin-bottom: 5px; }
   .command-area { bottom: 43px; width: calc(100vw - 32px); }
   .command-bar { height: 48px; }
