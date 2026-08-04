@@ -1,6 +1,7 @@
 import type { KnowledgeEdge, KnowledgeNode } from "../types";
-
-type MapPoint = { node: KnowledgeNode; x: number; y: number };
+import { mapBreathingScale, mapGroupMotion, mapNodeMotion, quadraticPoint } from "../map/map-motion";
+import type { MapPoint } from "../map/types";
+import { mapSceneCenter, worldToScreen, type MapViewport } from "../map/map-viewport";
 
 type MapFrameOptions = {
   context: CanvasRenderingContext2D;
@@ -13,6 +14,9 @@ type MapFrameOptions = {
   highlightedNodeIds: string[];
   hoveredNodeId: string | null;
   mapPoints: { current: MapPoint[] };
+  viewport: MapViewport;
+  focusActive: boolean;
+  reducedMotion: boolean;
 };
 
 export function renderMapFrame({
@@ -26,10 +30,15 @@ export function renderMapFrame({
   highlightedNodeIds,
   hoveredNodeId,
   mapPoints,
+  viewport,
+  focusActive,
+  reducedMotion,
 }: MapFrameOptions) {
   type PositionedNode = KnowledgeNode & {
     px: number;
     py: number;
+    worldX: number;
+    worldY: number;
     groupIndex: number;
     column: number;
     ring: number;
@@ -45,13 +54,13 @@ export function renderMapFrame({
     members: PositionedNode[];
   };
 
-  const cx = width / 2;
-  const cy = height / 2 - Math.min(8, height * 0.015);
-  const radiusX = Math.max(128, Math.min(width * 0.43, height * 0.61, 470));
-  const radiusY = Math.max(126, Math.min(height * 0.41, width * 0.36, 330));
-  const pointOnMap = (angle: number, radius: number) => ({
-    x: cx + Math.cos(angle) * radiusX * radius,
-    y: cy + Math.sin(angle) * radiusY * radius,
+  const center = mapSceneCenter(width, height);
+  const { x: cx, y: cy } = center;
+  const screenCenter = worldToScreen(center, viewport, center);
+  const radius = Math.max(72, Math.min(width * 0.4, height * 0.39, 360));
+  const pointOnMap = (angle: number, distance: number) => ({
+    x: cx + Math.cos(angle) * radius * distance,
+    y: cy + Math.sin(angle) * radius * distance,
   });
   const contentNodes = nodes.filter((node) => node.kind !== "system");
   const systemNode = nodes.find((node) => node.kind === "system");
@@ -73,7 +82,11 @@ export function renderMapFrame({
   const groups: MapGroup[] = [];
 
   if (systemNode) {
-    positions.push({ ...systemNode, px: cx, py: cy, groupIndex: -1, column: 0, ring: 0 });
+    const systemMotion = mapNodeMotion(systemNode.id, time, reducedMotion);
+    const worldX = cx + systemMotion.x * 0.35;
+    const worldY = cy + systemMotion.y * 0.35;
+    const screen = worldToScreen({ x: worldX, y: worldY }, viewport, center);
+    positions.push({ ...systemNode, px: screen.x, py: screen.y, worldX, worldY, groupIndex: -1, column: 0, ring: 0 });
   }
 
   groupEntries.forEach((group, groupIndex) => {
@@ -81,7 +94,11 @@ export function renderMapFrame({
     const startAngle = angleCursor;
     const endAngle = angleCursor + span;
     const midAngle = (startAngle + endAngle) / 2;
-    const hub = pointOnMap(midAngle, 0.29);
+    const baseHub = pointOnMap(midAngle, 0.29);
+    const groupMotion = mapGroupMotion(group.name, time, reducedMotion);
+    const breathingScale = mapBreathingScale(group.name, time, reducedMotion);
+    const hubWorld = { x: baseHub.x + groupMotion.x * 0.65, y: baseHub.y + groupMotion.y * 0.65 };
+    const hub = worldToScreen(hubWorld, viewport, center);
     const sectorMargin = Math.min(0.085, Math.max(0.02, span * 0.08));
     const columns = Math.max(1, Math.min(22, Math.ceil(Math.sqrt(group.members.length * span * 1.12))));
     const ringCount = Math.max(1, Math.ceil(group.members.length / columns));
@@ -97,8 +114,12 @@ export function renderMapFrame({
       const radialPosition = ringCount === 1
         ? 0.76
         : 0.51 + (ring / Math.max(1, ringCount - 1)) * 0.43;
-      const point = pointOnMap(memberAngle, radialPosition);
-      const positioned = { ...node, px: point.x, py: point.y, groupIndex, column, ring };
+      const basePoint = pointOnMap(memberAngle, radialPosition * breathingScale);
+      const nodeMotion = mapNodeMotion(node.id, time, reducedMotion);
+      const worldX = basePoint.x + groupMotion.x + nodeMotion.x;
+      const worldY = basePoint.y + groupMotion.y + nodeMotion.y;
+      const point = worldToScreen({ x: worldX, y: worldY }, viewport, center);
+      const positioned = { ...node, px: point.x, py: point.y, worldX, worldY, groupIndex, column, ring };
       positions.push(positioned);
       return positioned;
     });
@@ -115,12 +136,17 @@ export function renderMapFrame({
     angleCursor += span + gap;
   });
 
-  mapPoints.current = positions.map((node) => ({ node, x: node.px, y: node.py }));
+  mapPoints.current = positions.map((node) => ({
+    node,
+    x: node.px,
+    y: node.py,
+    worldX: node.worldX,
+    worldY: node.worldY,
+  }));
   const positionById = new Map(positions.map((node) => [node.id, node]));
   const selected = positionById.get(selectedNodeId);
   const selectedGroup = selected?.kind === "system" ? null : selected?.group;
   const searchMatches = new Set(highlightedNodeIds);
-  const focusActive = Boolean(selectedGroup);
   const relatedIds = new Set<string>([selectedNodeId]);
   for (const edge of edges) {
     if (edge.source === selectedNodeId) relatedIds.add(edge.target);
@@ -133,27 +159,27 @@ export function renderMapFrame({
     context.strokeStyle = isSelectedGroup ? "rgba(255, 211, 232, .26)" : "rgba(255, 211, 232, .085)";
     context.lineWidth = isSelectedGroup ? 1 : 0.55;
     context.beginPath();
-    context.ellipse(cx, cy, radiusX, radiusY, 0, group.startAngle, group.endAngle);
+    context.arc(screenCenter.x, screenCenter.y, radius * viewport.zoom, group.startAngle, group.endAngle);
     context.stroke();
 
-    const sectorStartInner = pointOnMap(group.startAngle, 0.45);
-    const sectorStartOuter = pointOnMap(group.startAngle, 1);
+    const sectorStartInner = worldToScreen(pointOnMap(group.startAngle, 0.45), viewport, center);
+    const sectorStartOuter = worldToScreen(pointOnMap(group.startAngle, 1), viewport, center);
     context.strokeStyle = "rgba(255, 211, 232, .045)";
     context.beginPath();
     context.moveTo(sectorStartInner.x, sectorStartInner.y);
     context.lineTo(sectorStartOuter.x, sectorStartOuter.y);
     context.stroke();
 
-    const trunkGradient = context.createLinearGradient(cx, cy, group.hubX, group.hubY);
+    const trunkGradient = context.createLinearGradient(screenCenter.x, screenCenter.y, group.hubX, group.hubY);
     trunkGradient.addColorStop(0, "rgba(255, 225, 239, .3)");
     trunkGradient.addColorStop(1, isSelectedGroup ? "rgba(255, 196, 224, .5)" : "rgba(255, 211, 232, .16)");
     context.strokeStyle = trunkGradient;
     context.lineWidth = isSelectedGroup ? 1.25 : 0.72;
     context.beginPath();
-    context.moveTo(cx, cy);
+    context.moveTo(screenCenter.x, screenCenter.y);
     context.quadraticCurveTo(
-      cx + Math.cos(group.midAngle) * radiusX * 0.13,
-      cy + Math.sin(group.midAngle) * radiusY * 0.13,
+      screenCenter.x + Math.cos(group.midAngle) * radius * viewport.zoom * 0.13,
+      screenCenter.y + Math.sin(group.midAngle) * radius * viewport.zoom * 0.13,
       group.hubX,
       group.hubY,
     );
@@ -181,7 +207,8 @@ export function renderMapFrame({
     const a = positionById.get(edge.source);
     const b = positionById.get(edge.target);
     if (!a || !b || a.kind === "system" || b.kind === "system") continue;
-    const directlySelected = edge.source === selectedNodeId || edge.target === selectedNodeId;
+    const directlySelected = edge.source === selectedNodeId || edge.target === selectedNodeId
+      || edge.source === hoveredNodeId || edge.target === hoveredNodeId;
     const joinsSearchMatches = searchMatches.has(edge.source) && searchMatches.has(edge.target);
     const structural = edge.type === "parent" || edge.type === "child" || edge.type === "relation";
     if (!directlySelected && !joinsSearchMatches && (!structural || focusActive)) continue;
@@ -189,10 +216,23 @@ export function renderMapFrame({
     context.strokeStyle = `rgba(255, 220, 237, ${opacity})`;
     context.lineWidth = directlySelected ? 1.25 : 0.6;
     context.setLineDash(edge.type === "similarity" ? [2, 5] : []);
+    const control = { x: (a.px + b.px + screenCenter.x) / 3, y: (a.py + b.py + screenCenter.y) / 3 };
     context.beginPath();
     context.moveTo(a.px, a.py);
-    context.quadraticCurveTo((a.px + b.px + cx) / 3, (a.py + b.py + cy) / 3, b.px, b.py);
+    context.quadraticCurveTo(control.x, control.y, b.px, b.py);
     context.stroke();
+    if (!reducedMotion && directlySelected) {
+      const progress = (time * 0.28 + edge.source.length * 0.07 + edge.target.length * 0.03) % 1;
+      const pulse = quadraticPoint({ x: a.px, y: a.py }, control, { x: b.px, y: b.py }, progress);
+      const pulseGlow = context.createRadialGradient(pulse.x, pulse.y, 0, pulse.x, pulse.y, 6);
+      pulseGlow.addColorStop(0, "rgba(255, 250, 253, .95)");
+      pulseGlow.addColorStop(0.25, "rgba(255, 181, 218, .58)");
+      pulseGlow.addColorStop(1, "rgba(255, 181, 218, 0)");
+      context.fillStyle = pulseGlow;
+      context.beginPath();
+      context.arc(pulse.x, pulse.y, 6, 0, Math.PI * 2);
+      context.fill();
+    }
   }
   context.setLineDash([]);
 
@@ -273,7 +313,7 @@ export function renderMapFrame({
     context.letterSpacing = "1.2px";
     context.fillStyle = "rgba(255, 234, 244, .88)";
     context.textAlign = "center";
-    context.fillText("NOTION", cx, cy + 20);
+    context.fillText("NOTION", screenCenter.x, screenCenter.y + 20);
   }
 
   const labelCandidates = positions
@@ -318,4 +358,3 @@ export function renderMapFrame({
   context.textAlign = "left";
   context.fillText("THEMEN  →  NOTIZEN   ·   AUSWAHL ZEIGT VERBINDUNGEN", 14, height - 14);
 }
-
