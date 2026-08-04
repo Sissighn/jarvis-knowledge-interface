@@ -1,3 +1,5 @@
+import type { DailyTechVocabulary } from "@/features/glossary/types";
+
 export type BriefingSource = "techpresso" | "github" | "openai" | "hackernews";
 
 export type BriefingItem = {
@@ -27,11 +29,5 @@ export type DailyBriefing = {
   generatedAt: string;
   items: BriefingItem[];
   sourceStatus: BriefingSourceStatus[];
-  glossary?: {
-    term: string;
-    definition: string;
-    example: string;
-    whyItMatters: string;
-    sourceItemId: string;
-  };
+  vocabulary: DailyTechVocabulary;
 };
