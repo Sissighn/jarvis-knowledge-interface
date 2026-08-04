@@ -11,6 +11,9 @@
   --left-rail: clamp(300px, 22vw, 360px);
   --right-rail: clamp(372px, 28vw, 450px);
   --workspace-center: calc(50% + (var(--left-rail) - var(--right-rail)) / 2);
+  --right-panel-top: 124px;
+  --right-panel-gap: 14px;
+  --right-panel-height: clamp(260px, calc((100svh - 308px) / 2), 390px);
 }
 
 * { box-sizing: border-box; }
@@ -251,14 +254,14 @@ button { color: inherit; }
 
 .briefing-panel {
   position: absolute;
-  top: 148px;
+  top: var(--right-panel-top);
   right: 36px;
-  bottom: 170px;
   z-index: 7;
   width: calc(var(--right-rail) - 72px);
-  max-height: none;
-  overflow-x: hidden;
-  overflow-y: auto;
+  height: var(--right-panel-height);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 20px;
   opacity: 0;
   pointer-events: none;
@@ -274,7 +277,7 @@ button { color: inherit; }
   scrollbar-width: thin;
 }
 .briefing-panel.is-visible { opacity: 1; pointer-events: auto; transform: translateX(0); }
-.briefing-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.briefing-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .briefing-header .eyebrow { margin-bottom: 6px; color: #b19ca6; }
 .briefing-header h2 { margin: 0; color: #fff7fb; font-size: 24px; font-weight: 360; letter-spacing: -.035em; text-transform: capitalize; }
 .briefing-refresh {
@@ -323,10 +326,6 @@ button { color: inherit; }
 .briefing-error, .briefing-empty { margin-top: 16px; padding: 14px; border: 1px solid rgba(255, 211, 232, .11); background: rgba(255, 211, 232, .03); }
 .briefing-error p, .briefing-empty p { margin: 0 0 10px; color: #b8a7af; font-size: 10.5px; line-height: 1.55; }
 .briefing-empty strong { display: block; margin-bottom: 6px; color: #f4dce7; font-size: 12px; font-weight: 450; }
-.glossary-card { margin-top: 20px; padding: 15px; border: 1px solid rgba(255, 205, 229, .16); background: rgba(255, 190, 221, .05); }
-.glossary-card h3 { margin: 9px 0 7px; color: #fff0f7; font-size: 16px; font-weight: 470; }
-.glossary-card p { margin: 0 0 9px; color: #bdaab3; font-size: 11px; line-height: 1.55; }
-.glossary-card > span:last-child { color: #9c8791; font-size: 9.5px; line-height: 1.5; }
 .briefing-sources { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line); color: #917c86; font: 8px/1.4 var(--font-geist-mono), monospace; letter-spacing: .1em; }
 
 .mode-switcher {
