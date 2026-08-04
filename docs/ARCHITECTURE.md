@@ -26,19 +26,19 @@ TF-IDF vectors ──► semantic edges ──► topic clusters ──► deter
    ▼
 /api/notion/graph ──► interface state ──► local TF-IDF retrieval
                                             │
-                                  top five note excerpts
+                            top five focused note passages
                                             │
                                             ▼
                                     /api/ai/answer
                                             │
                                             ▼
-                                  local Ollama + Qwen 3.5
+                         local Ollama + Qwen 3.5 + recent turns
                                             │
                                             ▼
-                            natural answer + citations + highlighting
+                      claim verification + citations + highlighting
 ```
 
-The connector reads only content explicitly shared with the integration. The graph builder combines Notion hierarchy, relations, page mentions, and content similarity. The browser ranks notes and passes at most five retrieved excerpts to the server-only Ollama bridge. Qwen formulates the answer locally and returns numbered citations. If the model or context is unavailable, the deterministic extractive answer remains the fallback. The browser receives normalized graph data, never the integration token.
+The connector reads only content explicitly shared with the integration. The graph builder combines Notion hierarchy, relations, page mentions, and content similarity. The browser performs weighted sparse retrieval, lightly reranks short follow-ups with recent source IDs, and extracts focused passages from at most five notes. Qwen receives those passages plus up to four session-only conversation turns, where previous answers may clarify references but never count as evidence. Every factual sentence needs an inline citation and passes a deterministic lexical support check against the cited passages before display. If the model or context is unavailable, the extractive answer remains the fallback. The browser receives normalized graph data, never the integration token.
 
 ## Briefing flow
 
@@ -49,7 +49,20 @@ public sources ──► isolated fetchers ──► topic scoring ──► ded
 browser cache ◄──────────── /api/briefing ◄──────── top 10 relevant stories
 ```
 
-Source failures are collected independently. A single unavailable feed cannot fail the full response, and the browser retains the latest daily result.
+Source failures are collected independently. A single unavailable feed cannot fail the full response, and the browser retains the latest daily result. Stories older than 72 hours are discarded rather than used as filler; within that window, a steep freshness score favors the newest relevant reports, and only stories no older than 36 hours can enter the “important” group.
+
+## Vocabulary flow
+
+```text
+curated catalogue ──► date-based rotation ──► five daily terms ──► carousel
+                                                                      │
+                                                        explicit ZU NOTION +
+                                                                      │
+                                                                      ▼
+                                            validated eight-column table row
+```
+
+The daily vocabulary is deterministic, local, and independent of the news feeds or language model. Each term includes a definition, category, purpose, professional example, everyday analogy, conversational sentence, and takeaway. Export is a separate POST boundary: the server validates the requested term against that day's catalogue, checks the configured table schema, rejects duplicates, and appends exactly one row only after the user's explicit action.
 
 ## Speech flow
 
@@ -72,8 +85,8 @@ Recording never stops because of silence. Audio is held in browser memory for th
 
 | Boundary | Responsibilities |
 | --- | --- |
-| React client | interaction, Canvas rendering, local retrieval, answer presentation, speech controls, preferences |
-| Next.js API routes | input validation, Ollama and Whisper boundaries, error mapping, cache controls |
+| React client | interaction, Canvas rendering, local retrieval, session conversation context, answer presentation, speech controls, preferences |
+| Next.js API routes | input validation, Ollama, Whisper, and explicit Notion-write boundaries, error mapping, cache controls |
 | Feature server modules | local language and speech models, Notion, feeds, and weather access |
 | Pure feature modules | vector math, ranking, clustering, layout, and domain types |
 | Worker | vinext request handling and image optimization |
@@ -103,7 +116,7 @@ The Tauri process owns every child it starts and terminates those children durin
 
 ## Testing strategy
 
-- unit tests cover deterministic retrieval and generated-answer contracts
+- unit tests cover deterministic retrieval, follow-up context, passage selection, generated-answer grounding, and daily vocabulary rotation
 - TypeScript strict mode validates contracts across feature boundaries
 - ESLint covers React, Next.js, and TypeScript conventions
 - integration tests run against the built worker and verify SSR plus the Notion credential boundary
