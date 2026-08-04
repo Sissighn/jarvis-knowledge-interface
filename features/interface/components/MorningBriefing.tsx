@@ -71,28 +71,21 @@ export function MorningBriefing({
         </button>
       </header>
 
-      {loading && !briefing ? <div className="briefing-loading"><i /><i /><i /><span>QUELLEN WERDEN GEPRÜFT</span></div> : null}
-      {error ? <div className="briefing-error"><p>{error}</p><button onClick={onReload}>ERNEUT VERSUCHEN</button></div> : null}
-      {briefing && !visibleItems.length && !error ? (
-        <div className="briefing-empty"><strong>Heute kein Rauschen.</strong><p>Keine Meldung hat den Relevanzfilter passiert oder du hast alle ausgeblendet.</p></div>
-      ) : null}
-      {renderGroup("WICHTIG FÜR DICH", importantItems)}
-      {renderGroup("WISSENSWERT", usefulItems)}
+      <div className="briefing-news-feed">
+        {loading && !briefing ? <div className="briefing-loading"><i /><i /><i /><span>QUELLEN WERDEN GEPRÜFT</span></div> : null}
+        {error ? <div className="briefing-error"><p>{error}</p><button onClick={onReload}>ERNEUT VERSUCHEN</button></div> : null}
+        {briefing && !visibleItems.length && !error ? (
+          <div className="briefing-empty"><strong>Heute kein Rauschen.</strong><p>Keine Meldung hat den Relevanzfilter passiert oder du hast alle ausgeblendet.</p></div>
+        ) : null}
+        {renderGroup("WICHTIG FÜR DICH", importantItems)}
+        {renderGroup("WISSENSWERT", usefulItems)}
+        {briefing ? (
+          <footer className="briefing-sources" title={briefing.sourceStatus.map((status) => `${status.label}: ${status.ok ? `${status.count} geladen` : "nicht erreichbar"}`).join(" · ")}>
+            {briefing.sourceStatus.filter((status) => status.ok).length}/{briefing.sourceStatus.length} QUELLEN · MAX. 72H · BIS ZU 10 MELDUNGEN
+          </footer>
+        ) : null}
+      </div>
 
-      {briefing?.glossary && visibleItems.some((item) => item.id === briefing.glossary?.sourceItemId) ? (
-        <section className="glossary-card">
-          <span className="briefing-section-label">BEGRIFF DES TAGES</span>
-          <h3>{briefing.glossary.term}</h3>
-          <p>{briefing.glossary.definition}</p>
-          <span>{briefing.glossary.whyItMatters}</span>
-        </section>
-      ) : null}
-
-      {briefing ? (
-        <footer className="briefing-sources" title={briefing.sourceStatus.map((status) => `${status.label}: ${status.ok ? `${status.count} geladen` : "nicht erreichbar"}`).join(" · ")}>
-          {briefing.sourceStatus.filter((status) => status.ok).length}/{briefing.sourceStatus.length} QUELLEN · MAX. 10 MELDUNGEN
-        </footer>
-      ) : null}
     </aside>
   );
 }

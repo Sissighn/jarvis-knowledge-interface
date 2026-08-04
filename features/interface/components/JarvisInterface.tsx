@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { generateKnowledgeAnswer } from "@/features/ai/client/generate-answer";
+import { rememberConversationTurn, retrievalContextFromHistory } from "@/features/ai/client/conversation";
+import type { ConversationTurn } from "@/features/ai/types";
 import { answerKnowledge, type KnowledgeAnswer } from "@/features/knowledge/answer";
 import { NeuralCanvas } from "./NeuralCanvas";
 import { AppHeader } from "./AppHeader";
@@ -9,6 +11,7 @@ import { CommandCenter } from "./CommandCenter";
 import { KnowledgePanels } from "./KnowledgePanels";
 import { MorningBriefing } from "./MorningBriefing";
 import { NotionSetupDialog } from "./NotionSetupDialog";
+import { TechVocabularyCarousel } from "./TechVocabularyCarousel";
 import { useJarvisData } from "../hooks/useJarvisData";
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder";
 import type { CoreState, ViewMode } from "../types";
@@ -21,6 +24,7 @@ export function JarvisInterface() {
   const [setupOpen, setSetupOpen] = useState(false);
   const requestIdRef = useRef(0);
   const answerControllerRef = useRef<AbortController | null>(null);
+  const conversationRef = useRef<ConversationTurn[]>([]);
   const {
     nodes,
     edges,
@@ -36,9 +40,13 @@ export function JarvisInterface() {
     briefingError,
     visibleBriefingItems,
     savedBriefingIds,
+    savedVocabularyIds,
+    savingVocabularyId,
+    vocabularySaveError,
     loadBriefing,
     hideBriefingItem,
     toggleSavedBriefingItem,
+    saveVocabularyTerm,
     weather,
     weatherLoading,
     weatherError,
@@ -80,7 +88,13 @@ export function JarvisInterface() {
     setAnswer(null);
     setState("thinking");
 
-    const baseAnswer = answerKnowledge(nodes, edges, cleanQuery);
+    const conversation = conversationRef.current;
+    const baseAnswer = answerKnowledge(
+      nodes,
+      edges,
+      cleanQuery,
+      retrievalContextFromHistory(conversation),
+    );
     if (baseAnswer.sources.length) {
       const firstNode = nodes.find((node) => node.id === baseAnswer.sources[0].nodeId);
       if (firstNode) setSelectedNode(firstNode);
@@ -90,6 +104,7 @@ export function JarvisInterface() {
     if (!baseAnswer.sources.length) {
       if (requestId === requestIdRef.current) {
         setAnswer(baseAnswer);
+        conversationRef.current = rememberConversationTurn(conversation, baseAnswer);
         setState("idle");
         answerControllerRef.current = null;
       }
@@ -97,16 +112,21 @@ export function JarvisInterface() {
     }
 
     try {
-      const generatedAnswer = await generateKnowledgeAnswer(baseAnswer, nodes, controller.signal);
-      if (requestId === requestIdRef.current) setAnswer(generatedAnswer);
+      const generatedAnswer = await generateKnowledgeAnswer(baseAnswer, nodes, conversation, controller.signal);
+      if (requestId === requestIdRef.current) {
+        setAnswer(generatedAnswer);
+        conversationRef.current = rememberConversationTurn(conversation, generatedAnswer);
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       const reason = error instanceof Error ? error.message : "Das lokale Modell ist nicht erreichbar.";
       if (requestId === requestIdRef.current) {
-        setAnswer({
+        const fallbackAnswer = {
           ...baseAnswer,
           caveat: `Lokales Modell nicht verfügbar: ${reason} ${baseAnswer.caveat}`,
-        });
+        };
+        setAnswer(fallbackAnswer);
+        conversationRef.current = rememberConversationTurn(conversation, fallbackAnswer);
       }
     } finally {
       if (requestId === requestIdRef.current) {
@@ -211,6 +231,18 @@ export function JarvisInterface() {
         onHide={hideBriefingItem}
         onToggleSaved={toggleSavedBriefingItem}
       />
+
+      {mode === "core" ? (
+        <TechVocabularyCarousel
+          key={briefing?.vocabulary?.date ?? "vocabulary-loading"}
+          vocabulary={briefing?.vocabulary}
+          notionConnected={notionStatus.connected}
+          savedTermIds={savedVocabularyIds}
+          savingTermId={savingVocabularyId}
+          saveError={vocabularySaveError}
+          onSave={(termId) => void saveVocabularyTerm(termId)}
+        />
+      ) : null}
 
       <nav className="mode-switcher" aria-label="Ansicht wechseln">
         <button className={mode === "core" ? "active" : ""} onClick={() => setMode("core")}><i /> CORE</button>
