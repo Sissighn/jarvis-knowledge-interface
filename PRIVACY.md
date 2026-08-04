@@ -11,9 +11,10 @@ This document describes the data flows implemented by the repository. It is not 
 | Feature | Data involved | Processing and recipients | Retention |
 | --- | --- | --- | --- |
 | Notion sync | integration token and content from explicitly shared pages or data sources | the server-side application requests content from the Notion API; the token is not sent to the browser | the token remains in the ignored `.env.local` file; loaded graph data and server caches are held in memory |
-| Knowledge Q&A | the question and up to five retrieved Notion excerpts | retrieval runs locally; the selected context is sent only to the Ollama service configured by `OLLAMA_BASE_URL`, which defaults to loopback | no conversation history is intentionally persisted by JARVIS |
+| Knowledge Q&A | the question, up to five focused Notion excerpts, and up to four recent Q&A turns | retrieval and claim verification run locally; selected context and recent turns are sent only to the Ollama service configured by `OLLAMA_BASE_URL`, which defaults to loopback | recent turns stay in application memory for the current session and are not intentionally persisted by JARVIS |
 | Voice input | microphone recording and resulting transcript | the browser sends the completed recording to the local JARVIS route, which forwards it to the whisper.cpp service configured by `WHISPER_BASE_URL`, which defaults to loopback | JARVIS does not intentionally persist recordings; the local speech runtime or conversion tools may use transient working files while processing |
 | Tech briefing | public articles and local relevance choices | public feeds are fetched server-side; saved and hidden story identifiers are stored in browser storage | feed results are cached temporarily in memory and in the browser; preferences remain until browser site data is cleared |
+| Tech vocabulary | the selected term and its seven explanatory fields | the daily selection is computed locally; only an explicit **ZU NOTION +** action sends that term to the configured Notion table | successful term identifiers remain in browser storage; the exported row remains in Notion until deleted there |
 | Weather | configured location name and coordinates | coordinates are sent to Open-Meteo to retrieve the forecast | the result is cached in server memory for approximately 30 minutes |
 | Local logs | technical status and error information | shown in or written by the local development processes | retained according to the local terminal, shell, and development-tool configuration |
 | macOS integration | app lifecycle, the registered `⌘⇧J` shortcut, launch-at-login state, and notification permission | handled locally by macOS and the Tauri process | settings remain until disabled in JARVIS or macOS; delivered notifications follow the user's Notification Center settings |
@@ -32,14 +33,14 @@ Opening a Notion page, news story, or another external link transfers the usual 
 
 ## Browser storage
 
-JARVIS uses `localStorage` for the daily briefing cache and the user's saved or hidden story identifiers. It does not set analytics or advertising cookies. Browser storage can be removed through the browser's site-data controls.
+JARVIS uses `localStorage` for the daily briefing cache, saved or hidden story identifiers, and identifiers of vocabulary terms already exported to Notion. It does not set analytics or advertising cookies. Browser storage can be removed through the browser's site-data controls.
 
 The native app uses an embedded WebView with its own site storage. The release build prepares a private runtime copy of `.env.local` and the local speech-model reference in `~/Library/Application Support/com.sissighn.jarvis/`. The copied environment file is created with owner-only file permissions and is not included in the `.app`, DMG, or repository.
 
 ## Security choices
 
 - secrets are read only by server-side routes and `.env*` files are excluded from Git
-- Notion access is intended to be read-only and limited to explicitly shared content
+- Notion graph access is read-only and limited to explicitly shared content; optional update access is used only after an explicit glossary-export click and only for the configured table
 - Ollama and whisper.cpp default to loopback addresses
 - the packaged application server listens only on `127.0.0.1`
 - native WebView permissions are limited to Tauri core functionality and notifications for the fixed loopback origin
