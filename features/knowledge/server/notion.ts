@@ -95,7 +95,7 @@ async function takeRateLimitTurn() {
   release();
 }
 
-async function notionRequest<T>(path: string, init?: RequestInit): Promise<T> {
+export async function notionRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAccessToken();
   if (!token) {
     throw new NotionConnectionError("Notion ist noch nicht lokal konfiguriert.", 503, "not_configured");
@@ -177,6 +177,12 @@ export async function buildNotionGraph(force = false): Promise<NotionGraph> {
     limit,
     Math.min(DEFAULT_CONTENT_SCAN_LIMIT, limit),
   );
+  const contentCharacterLimit = clampNumber(
+    process.env.NOTION_CONTENT_CHAR_LIMIT,
+    1_800,
+    30_000,
+    12_000,
+  );
   const pagesToScan = pages.slice(0, contentScanLimit);
   for (const page of pagesToScan) {
     const blocks = await listBlockChildren(page.id);
@@ -193,7 +199,7 @@ export async function buildNotionGraph(force = false): Promise<NotionGraph> {
         .join(" ")
         .replace(/\s+/g, " ")
         .trim()
-        .slice(0, 1800);
+        .slice(0, contentCharacterLimit);
     }
   }
 

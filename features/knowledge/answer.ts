@@ -1,5 +1,10 @@
 /** Grounded, extractive answers built entirely from the loaded knowledge graph. */
-import { searchKnowledge, tokenizeKnowledgeText, type KnowledgeSearchResult } from "./search";
+import {
+  searchKnowledge,
+  tokenizeKnowledgeText,
+  type KnowledgeRetrievalContext,
+  type KnowledgeSearchResult,
+} from "./search";
 import type { KnowledgeEdge, KnowledgeNode } from "./types";
 
 export type KnowledgeAnswerStatus = "answered" | "uncertain" | "not_found";
@@ -27,6 +32,12 @@ export type KnowledgeAnswer = {
     model: string;
     citations: number[];
     grounded: boolean;
+    conversationTurns: number;
+    grounding?: {
+      acceptedClaims: number;
+      rejectedClaims: number;
+      supportRatio: number;
+    };
   };
 };
 
@@ -138,10 +149,15 @@ export function answerKnowledge(
   nodes: KnowledgeNode[],
   edges: KnowledgeEdge[],
   query: string,
+  retrievalContext: KnowledgeRetrievalContext = {},
 ): KnowledgeAnswer {
   const cleanQuery = query.replace(/\s+/g, " ").trim();
-  const queryTerms = [...new Set(tokenizeKnowledgeText(cleanQuery))];
-  const sources = searchKnowledge(nodes, cleanQuery, 5);
+  const currentTerms = tokenizeKnowledgeText(cleanQuery);
+  const historyTerms = currentTerms.length <= 2
+    ? (retrievalContext.previousQueries ?? []).slice(-3).flatMap(tokenizeKnowledgeText)
+    : [];
+  const queryTerms = [...new Set([...currentTerms, ...historyTerms])];
+  const sources = searchKnowledge(nodes, cleanQuery, 5, retrievalContext);
 
   if (!sources.length) {
     return {
