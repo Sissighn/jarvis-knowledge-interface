@@ -1,4 +1,5 @@
 /** Server-only aggregation and relevance ranking for the daily briefing. */
+import { buildDailyTechVocabulary } from "@/features/glossary/daily";
 import type { BriefingItem, BriefingSource, BriefingSourceStatus, DailyBriefing } from "../types";
 
 type Candidate = Omit<BriefingItem, "id" | "score" | "priority" | "topics" | "matchedTopics"> & {
@@ -12,6 +13,7 @@ const GITHUB_FEED = "https://github.blog/changelog/feed/";
 const OPENAI_FEED = "https://openai.com/news/rss.xml";
 const HN_API = "https://hacker-news.firebaseio.com/v0";
 const CACHE_TTL_MS = 45 * 60 * 1000;
+export const MAX_BRIEFING_AGE_HOURS = 72;
 
 const TOPICS: Topic[] = [
   { label: "AI & ML", weight: 2.1, keywords: ["artificial intelligence", "machine learning", "language model", "neural", "reasoning", "inference", "training", "multimodal", "foundation model", "model family", "openai", "anthropic", "deepmind", "gemini", "gpt-", " llm", " ai ", " ai-"] },
@@ -46,15 +48,6 @@ const SOURCE_PRIORITY: Record<BriefingSource, number> = {
   techpresso: 3,
   hackernews: 2,
 };
-
-const GLOSSARY = [
-  { terms: ["mcp", "model context protocol"], term: "MCP", definition: "Ein offenes Protokoll, über das KI-Anwendungen standardisiert auf Tools und Datenquellen zugreifen.", example: "JARVIS könnte über einen MCP-Server auf eine lokale Wissensquelle zugreifen.", whyItMatters: "Es reduziert individuelle Integrationsarbeit zwischen Modellen, Apps und Daten." },
-  { terms: ["retrieval augmented generation", " rag "], term: "RAG", definition: "Ein Verfahren, das vor einer Modellantwort passende Informationen aus einer Wissensquelle abruft.", example: "Vor einer Antwort sucht JARVIS relevante Notion-Seiten und gibt sie dem Modell als Kontext.", whyItMatters: "Antworten werden stärker an deine echten Daten gebunden." },
-  { terms: ["inference"], term: "Inference", definition: "Die Phase, in der ein bereits trainiertes Modell aus einer Eingabe eine Ausgabe berechnet.", example: "Wenn ein lokales Modell deine Nachricht beantwortet, führt dein Mac Inference aus.", whyItMatters: "Inference bestimmt Geschwindigkeit, Hardwarebedarf und laufende Kosten." },
-  { terms: ["quantized", "quantization"], term: "Quantisierung", definition: "Modellgewichte werden mit geringerer numerischer Genauigkeit gespeichert und berechnet.", example: "Ein 4-Bit-Modell braucht deutlich weniger Arbeitsspeicher als seine Vollpräzisionsversion.", whyItMatters: "Damit werden lokale Modelle auf einem MacBook mit 16 GB RAM praktikabler." },
-  { terms: ["context window", "context length"], term: "Context Window", definition: "Die Textmenge, die ein Modell in einem Durchlauf berücksichtigen kann.", example: "Ein größeres Context Window erlaubt mehr Notizen gleichzeitig, benötigt aber mehr Ressourcen.", whyItMatters: "Es begrenzt, wie viel Projektwissen JARVIS unmittelbar verarbeiten kann." },
-  { terms: ["agentic coding", "coding agent", "software agent"], term: "Coding Agent", definition: "Ein KI-System, das mehrstufig an Code arbeitet und dafür Dateien, Terminal und Tests verwenden kann.", example: "Ein Coding Agent implementiert eine Funktion, prüft sie und korrigiert Fehler selbstständig.", whyItMatters: "Der Unterschied zum Chatbot liegt im tatsächlichen Handeln innerhalb eines klaren Arbeitsbereichs." },
-];
 
 let memoryCache: { createdAt: number; value: DailyBriefing } | null = null;
 
@@ -207,17 +200,28 @@ function searchable(candidate: Candidate) {
   return ` ${candidate.title} ${candidate.summary} ${candidate.sourceLabel} `.toLocaleLowerCase("en");
 }
 
+export function briefingAgeHours(publishedAt: string, now = Date.now()) {
+  const timestamp = Date.parse(publishedAt);
+  if (Number.isNaN(timestamp)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, (now - timestamp) / 3_600_000);
+}
+
+export function isBriefingFresh(publishedAt: string, now = Date.now()) {
+  return briefingAgeHours(publishedAt, now) <= MAX_BRIEFING_AGE_HOURS;
+}
+
 function scoreCandidate(candidate: Candidate) {
   const text = searchable(candidate);
   const matchedTopics = TOPICS.filter((topic) => topic.keywords.some((keyword) => text.includes(keyword)));
   const topicScore = matchedTopics.reduce((sum, topic) => sum + topic.weight, 0);
   const negativeScore = NEGATIVE_KEYWORDS.filter((keyword) => text.includes(keyword)).length * 1.5;
-  const ageHours = Math.max(0, (Date.now() - Date.parse(candidate.publishedAt)) / 3_600_000);
-  const freshness = ageHours <= 24 ? 1.65 : ageHours <= 48 ? 1 : ageHours <= 96 ? 0.35 : -0.8;
+  const ageHours = briefingAgeHours(candidate.publishedAt);
+  const freshness = ageHours <= 6 ? 3 : ageHours <= 12 ? 2.7 : ageHours <= 24 ? 2.2 : ageHours <= 48 ? 1.15 : 0.2;
   const raw = SOURCE_BASE_SCORE[candidate.source] + topicScore + freshness + (candidate.sourceSignal ?? 0) - negativeScore;
   return {
     score: Math.max(0, Math.min(10, Math.round(raw * 10) / 10)),
     matchedTopics: matchedTopics.map((topic) => topic.label),
+    ageHours,
   };
 }
 
@@ -257,8 +261,10 @@ function stableId(candidate: Candidate) {
 function rankAndDeduplicate(candidates: Candidate[]) {
   const scored = candidates
     .map((candidate) => ({ candidate, ...scoreCandidate(candidate) }))
-    .filter((entry) => entry.matchedTopics.length > 0 && entry.score >= 5.2)
-    .sort((a, b) => b.score - a.score || SOURCE_PRIORITY[b.candidate.source] - SOURCE_PRIORITY[a.candidate.source]);
+    .filter((entry) => entry.ageHours <= MAX_BRIEFING_AGE_HOURS && entry.matchedTopics.length > 0 && entry.score >= 5.2)
+    .sort((a, b) => b.score - a.score
+      || Date.parse(b.candidate.publishedAt) - Date.parse(a.candidate.publishedAt)
+      || SOURCE_PRIORITY[b.candidate.source] - SOURCE_PRIORITY[a.candidate.source]);
   const chosen: typeof scored = [];
   for (const entry of scored) {
     const duplicateIndex = chosen.findIndex((other) =>
@@ -275,29 +281,31 @@ function rankAndDeduplicate(candidates: Candidate[]) {
     }
   }
   return chosen
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+      const scoreDifference = b.score - a.score;
+      if (Math.abs(scoreDifference) > 0.6) return scoreDifference;
+      return Date.parse(b.candidate.publishedAt) - Date.parse(a.candidate.publishedAt);
+    })
     .slice(0, 10)
-    .map(({ candidate, score, matchedTopics }) => ({
+    .map(({ candidate, score, matchedTopics, ageHours }) => ({
       ...candidate,
       id: stableId(candidate),
       score,
-      priority: score >= 7 ? "important" as const : "worth_knowing" as const,
+      priority: score >= 7 && ageHours <= 36 ? "important" as const : "worth_knowing" as const,
       topics: matchedTopics,
       matchedTopics,
     }));
 }
 
-function selectGlossary(items: BriefingItem[]): DailyBriefing["glossary"] {
-  for (const item of items) {
-    const text = ` ${item.title} ${item.summary} `.toLowerCase();
-    const match = GLOSSARY.find((entry) => entry.terms.some((term) => text.includes(term)));
-    if (match) return { ...match, sourceItemId: item.id };
-  }
-  return undefined;
-}
-
 function localDate() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
+  const parts = new Intl.DateTimeFormat("de-DE", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
 }
 
 export async function buildDailyBriefing(force = false): Promise<DailyBriefing> {
@@ -328,12 +336,13 @@ export async function buildDailyBriefing(force = false): Promise<DailyBriefing> 
 
   if (!sourceStatus.some((status) => status.ok)) throw new Error("Keine Briefing-Quelle ist momentan erreichbar.");
   const items = rankAndDeduplicate(candidates);
+  const date = localDate();
   const value: DailyBriefing = {
-    date: localDate(),
+    date,
     generatedAt: new Date().toISOString(),
     items,
     sourceStatus,
-    glossary: selectGlossary(items),
+    vocabulary: buildDailyTechVocabulary(date),
   };
   memoryCache = { createdAt: Date.now(), value };
   return value;
