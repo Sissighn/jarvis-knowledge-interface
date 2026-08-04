@@ -67,15 +67,33 @@ test("rejects an invalid transcription upload before contacting Whisper", async 
   assert.equal(response.status, 400);
 });
 
+test("rejects an invalid glossary export before contacting Notion", async () => {
+  const workerUrl = new URL("../../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-glossary-export`);
+  const { default: worker } = await import(workerUrl.href);
+  const response = await worker.fetch(
+    new Request("http://localhost/api/glossary/notion", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ termId: 42 }),
+    }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(response.status, 400);
+});
+
 test("keeps the Notion token on the server side", async () => {
-  const [page, notion, gitignore] = await Promise.all([
+  const [page, notion, glossary, gitignore] = await Promise.all([
     readFile(new URL("../../features/interface/components/JarvisInterface.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../features/knowledge/server/notion.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../features/glossary/server/notion-glossary.ts", import.meta.url), "utf8"),
     readFile(new URL("../../.gitignore", import.meta.url), "utf8"),
   ]);
 
   assert.doesNotMatch(page, /process\.env\.NOTION_ACCESS_TOKEN/);
   assert.match(notion, /process\.env\.NOTION_ACCESS_TOKEN/);
   assert.match(notion, /Authorization: `Bearer \$\{token\}`/);
+  assert.doesNotMatch(glossary, /NOTION_ACCESS_TOKEN/);
   assert.match(gitignore, /^\.env\*$/m);
 });
