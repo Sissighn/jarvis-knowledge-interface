@@ -164,7 +164,47 @@ button { color: inherit; }
   width: calc(100% - var(--left-rail) - var(--right-rail));
 }
 .mode-core { cursor: default; }
-.mode-map { cursor: pointer; }
+.mode-map { cursor: grab; }
+.neural-canvas.mode-map:focus-visible {
+  outline: 1px solid rgba(255, 211, 232, .34);
+  outline-offset: -1px;
+}
+
+.map-controls {
+  position: absolute;
+  z-index: 6;
+  top: 76px;
+  left: calc(var(--left-rail) + 14px);
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(255, 211, 232, .15);
+  border-radius: 4px;
+  background: rgba(12, 7, 10, .82);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .24);
+  backdrop-filter: blur(12px);
+}
+.map-controls button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 211, 232, .1);
+  background: transparent;
+  color: rgba(221, 190, 205, .72);
+  font: 14px/1 var(--font-geist-mono), monospace;
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.map-controls button:last-child { border-bottom: 0; }
+.map-controls button:hover:not(:disabled),
+.map-controls button:focus-visible,
+.map-controls button.is-active {
+  outline: 0;
+  color: #fff3f9;
+  background: rgba(255, 205, 229, .1);
+  box-shadow: inset 2px 0 0 rgba(255, 194, 223, .48);
+}
+.map-controls button:disabled { cursor: default; opacity: .28; }
 
 .core-status {
   position: absolute;

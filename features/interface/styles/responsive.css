@@ -20,6 +20,7 @@
   .weather-details small { max-width: 180px; }
   .briefing-panel, .vocabulary-carousel, .context-panel { display: none; }
   .neural-canvas.mode-core, .neural-canvas.mode-map { left: 20px; right: auto; width: calc(100% - 40px); opacity: 1; }
+  .map-controls { left: 34px; }
   .mode-switcher, .command-area, .core-status, .core-copy { left: 50%; }
   .command-area { width: min(720px, calc(100vw - 40px)); }
   .visual-stage { bottom: 154px; }
@@ -32,6 +33,7 @@
     --right-rail: 16px;
   }
   .neural-canvas.mode-core, .neural-canvas.mode-map { left: 16px; right: auto; width: calc(100% - 32px); opacity: 1; }
+  .map-controls { left: 28px; }
   .mode-switcher { left: 50%; }
   .briefing-panel, .context-panel {
     top: 124px;
@@ -76,6 +78,7 @@
   .weather-retry { font-size: 7px; }
   .visual-stage { inset: 62px 0 138px; }
   .mode-switcher { top: 76px; }
+  .map-controls { top: 72px; }
   .context-panel p, .context-stats, .text-action, .keyword-list { display: none; }
   .context-panel h2 { margin: 0; font-size: 16px; }
   .briefing-header { padding-bottom: 10px; }
