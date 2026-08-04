@@ -38,13 +38,14 @@ test("merges a grounded local-model answer without losing its sources", () => {
     grounded: true,
   };
 
-  const answer = mergeGeneratedAnswer(baseAnswer, generated);
+  const answer = mergeGeneratedAnswer(baseAnswer, generated, 2);
 
   assert.equal(answer.status, "answered");
   assert.equal(answer.evidence.length, 0);
   assert.equal(answer.sources, baseAnswer.sources);
   assert.deepEqual(answer.highlightedNodeIds, ["rl"]);
   assert.deepEqual(answer.generation?.citations, [1]);
+  assert.equal(answer.generation?.conversationTurns, 2);
   assert.match(answer.summary, /Agenten durch Feedback/);
 });
 
