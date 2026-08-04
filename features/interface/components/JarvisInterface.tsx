@@ -197,6 +197,7 @@ export function JarvisInterface() {
 
       <section className="visual-stage">
         <NeuralCanvas
+          key={mode}
           state={state}
           mode={mode}
           nodes={nodes}
