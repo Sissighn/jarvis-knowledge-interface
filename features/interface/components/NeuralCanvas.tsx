@@ -5,6 +5,10 @@ import { useEffect, useRef } from "react";
 import type { CoreState, KnowledgeEdge, KnowledgeNode, ViewMode } from "../types";
 import { renderCoreFrame } from "../renderers/core-renderer";
 import { renderMapFrame } from "../renderers/map-renderer";
+import { createMapViewport, resetMapViewport, stepMapViewport } from "../map/map-viewport";
+import type { CanvasSize, MapPoint } from "../map/types";
+import { useMapInteractions } from "../hooks/useMapInteractions";
+import { MapControls } from "./MapControls";
 
 export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, onSelect }: {
   state: CoreState;
@@ -29,8 +33,33 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
     lastY: 0,
   });
   const coreBoundsRef = useRef({ x: 0, y: 0, radius: 0 });
-  const mapPointsRef = useRef<Array<{ node: KnowledgeNode; x: number; y: number }>>([]);
-  const hoveredNodeRef = useRef<string | null>(null);
+  const mapPointsRef = useRef<MapPoint[]>([]);
+  const canvasSizeRef = useRef<CanvasSize>({ width: 0, height: 0 });
+  const viewportRef = useRef(createMapViewport());
+  const {
+    hoveredNodeRef: mapHoveredNodeRef,
+    focusActive: mapFocusActive,
+    clearFocus: clearMapFocus,
+    focusSelection,
+    resetView: resetMapView,
+    zoomIn: zoomMapIn,
+    zoomOut: zoomMapOut,
+    onPointerMove: moveMapPointer,
+    onPointerDown: startMapPointer,
+    onPointerUp: endMapPointer,
+    onPointerCancel: cancelMapPointer,
+    onPointerLeave: leaveMapPointer,
+    onWheel: zoomMapWithWheel,
+    onDoubleClick: openMapNode,
+    onKeyDown: handleMapKey,
+  } = useMapInteractions({
+    mode,
+    viewportRef,
+    mapPointsRef,
+    canvasSizeRef,
+    selectedNodeId,
+    onSelect,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -78,12 +107,15 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
       const nextWidth = Math.floor(width * dpr);
       const nextHeight = Math.floor(height * dpr);
       if (backingWidth === nextWidth && backingHeight === nextHeight) return;
+      const firstMeasurement = canvasSizeRef.current.width === 0 || canvasSizeRef.current.height === 0;
+      canvasSizeRef.current = { width, height };
       backingWidth = nextWidth;
       backingHeight = nextHeight;
       canvas.width = nextWidth;
       canvas.height = nextHeight;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       particles.forEach((particle) => { particle.trail.length = 0; });
+      resetMapViewport(viewportRef.current, width, height, firstMeasurement);
     };
 
 
@@ -113,6 +145,7 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
         hoverX = hover.hoverX;
         hoverY = hover.hoverY;
       } else {
+        stepMapViewport(viewportRef.current, reduceMotion);
         renderMapFrame({
           context,
           width,
@@ -122,8 +155,11 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
           edges,
           selectedNodeId,
           highlightedNodeIds,
-          hoveredNodeId: hoveredNodeRef.current,
+          hoveredNodeId: mapHoveredNodeRef.current,
           mapPoints: mapPointsRef,
+          viewport: viewportRef.current,
+          focusActive: mapFocusActive,
+          reducedMotion: reduceMotion,
         });
       }
       if (!reduceMotion) time += 0.012;
@@ -140,7 +176,7 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
       resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [state, mode, nodes, edges, selectedNodeId, highlightedNodeIds]);
+  }, [state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, mapFocusActive, mapHoveredNodeRef]);
 
   const isInsideCore = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -175,34 +211,12 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
       event.currentTarget.style.cursor = rotation.dragging ? "grabbing" : insideCore ? "grab" : "default";
       return;
     }
-    pointerRef.current = {
-      x: (localX / rect.width - 0.5) * 2,
-      y: (localY / rect.height - 0.5) * 2,
-      active: true,
-    };
-    if (mode === "map") {
-      const closest = mapPointsRef.current
-        .map((point) => ({ point, distance: Math.hypot(point.x - localX, point.y - localY) }))
-        .sort((a, b) => a.distance - b.distance)[0];
-      hoveredNodeRef.current = closest && closest.distance < 24 ? closest.point.node.id : null;
-      event.currentTarget.style.cursor = hoveredNodeRef.current ? "pointer" : "crosshair";
-    }
-  };
-
-  const selectMapNode = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (mode !== "map") return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const closest = mapPointsRef.current
-      .map((point) => ({ ...point, distance: Math.hypot(point.x - x, point.y - y) }))
-      .sort((a, b) => a.distance - b.distance)[0];
-    if (closest && closest.distance < 36) onSelect(closest.node);
+    moveMapPointer(event);
   };
 
   const startCanvasInteraction = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (mode === "map") {
-      selectMapNode(event);
+      startMapPointer(event);
       return;
     }
     if (!isInsideCore(event)) {
@@ -221,7 +235,10 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
   };
 
   const endCanvasInteraction = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (mode !== "core") return;
+    if (mode === "map") {
+      endMapPointer(event);
+      return;
+    }
     rotationRef.current.dragging = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -230,21 +247,44 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={`neural-canvas mode-${mode}`}
-      aria-label={mode === "core" ? "Animierter neuronaler Jarvis-Kern" : "Interaktiver Wissensgraph"}
-      onPointerMove={updatePointer}
-      onPointerLeave={(event) => {
-        pointerRef.current.active = false;
-        hoveredNodeRef.current = null;
-        event.currentTarget.style.cursor = mode === "core"
-          ? rotationRef.current.dragging ? "grabbing" : "default"
-          : "crosshair";
-      }}
-      onPointerDown={startCanvasInteraction}
-      onPointerUp={endCanvasInteraction}
-      onPointerCancel={endCanvasInteraction}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className={`neural-canvas mode-${mode}`}
+        aria-label={mode === "core"
+          ? "Animierter neuronaler Jarvis-Kern"
+          : "Interaktiver Wissensgraph. Ziehen zum Verschieben, Mausrad zum Zoomen."}
+        tabIndex={mode === "map" ? 0 : -1}
+        onPointerMove={updatePointer}
+        onPointerLeave={(event) => {
+          pointerRef.current.active = false;
+          if (mode === "map") {
+            leaveMapPointer(event);
+          } else {
+            event.currentTarget.style.cursor = rotationRef.current.dragging ? "grabbing" : "default";
+          }
+        }}
+        onPointerDown={startCanvasInteraction}
+        onPointerUp={endCanvasInteraction}
+        onPointerCancel={(event) => {
+          if (mode === "map") cancelMapPointer(event);
+          else endCanvasInteraction(event);
+        }}
+        onWheel={zoomMapWithWheel}
+        onDoubleClick={openMapNode}
+        onKeyDown={handleMapKey}
+      />
+      {mode === "map" ? (
+        <MapControls
+          canFocus={nodes.some((node) => node.id === selectedNodeId && node.kind !== "system")}
+          focusActive={mapFocusActive}
+          onZoomIn={zoomMapIn}
+          onZoomOut={zoomMapOut}
+          onReset={resetMapView}
+          onFocus={focusSelection}
+          onClearFocus={clearMapFocus}
+        />
+      ) : null}
+    </>
   );
 }
