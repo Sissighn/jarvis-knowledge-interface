@@ -4,7 +4,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { generateKnowledgeAnswer } from "@/features/ai/client/generate-answer";
 import { rememberConversationTurn, retrievalContextFromHistory } from "@/features/ai/client/conversation";
 import type { ConversationTurn } from "@/features/ai/types";
-import { answerKnowledge, type KnowledgeAnswer } from "@/features/knowledge/answer";
+import { answerFromChunks, type KnowledgeAnswer } from "@/features/knowledge/answer";
+import { searchIndexedKnowledge } from "@/features/knowledge/client";
 import { NeuralCanvas } from "./NeuralCanvas";
 import { AppHeader } from "./AppHeader";
 import { CommandCenter } from "./CommandCenter";
@@ -13,8 +14,28 @@ import { MorningBriefing } from "./MorningBriefing";
 import { NotionSetupDialog } from "./NotionSetupDialog";
 import { TechVocabularyCarousel } from "./TechVocabularyCarousel";
 import { useJarvisData } from "../hooks/useJarvisData";
+import { useKnowledgeIndex } from "../hooks/useKnowledgeIndex";
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder";
-import type { CoreState, ViewMode } from "../types";
+import type { ConceptDetail, ConceptNode, CoreState, NotionStatus, ViewMode } from "../types";
+
+const DISCONNECTED_NOTION: NotionStatus = { configured: false, connected: false };
+const NUMBER_FORMAT = new Intl.NumberFormat("de-DE");
+const EMPTY_SYSTEM_NODE: ConceptNode = {
+  id: "jarvis-knowledge-root",
+  label: "WISSEN",
+  description: "Wähle im Setup deine Notion-Datenbanken aus.",
+  category: "System",
+  aliases: [],
+  importance: 1,
+  sourceCount: 0,
+  occurrenceCount: 0,
+  lastSeenAt: "",
+  kind: "system",
+  group: "System",
+  x: 0,
+  y: 0,
+  size: 7,
+};
 
 export function JarvisInterface() {
   const [state, setState] = useState<CoreState>("idle");
@@ -22,19 +43,16 @@ export function JarvisInterface() {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [loadedDetail, setLoadedDetail] = useState<{ conceptId: string; detail: ConceptDetail | null }>({
+    conceptId: "",
+    detail: null,
+  });
   const requestIdRef = useRef(0);
   const answerControllerRef = useRef<AbortController | null>(null);
   const conversationRef = useRef<ConversationTurn[]>([]);
+
   const {
-    nodes,
-    edges,
-    selectedNode,
-    setSelectedNode,
-    notionStatus,
-    graphMeta,
-    syncing,
-    notionError,
-    loadNotion,
     briefing,
     briefingLoading,
     briefingError,
@@ -55,27 +73,44 @@ export function JarvisInterface() {
     footerDate,
   } = useJarvisData();
 
+  const knowledge = useKnowledgeIndex();
+  const { nodes, edges, coverage, status: indexStatus, loadConceptDetail } = knowledge;
+  const notionStatus = indexStatus?.notion ?? DISCONNECTED_NOTION;
+  const syncing = Boolean(indexStatus?.running);
+
   useEffect(() => () => answerControllerRef.current?.abort(), []);
 
-  const groupCounts = useMemo(() => {
+  // Live updates keep the selection as long as the chosen concept still exists.
+  const selectedNode = useMemo(() => {
+    const selected = nodes.find((node) => node.id === selectedNodeId);
+    return selected ?? nodes.find((node) => node.kind === "system") ?? EMPTY_SYSTEM_NODE;
+  }, [nodes, selectedNodeId]);
+
+  const conceptId = selectedNode?.kind === "concept" ? selectedNode.id : "";
+  useEffect(() => {
+    if (!conceptId) return;
+    let active = true;
+    void loadConceptDetail(conceptId).then((detail) => {
+      if (active) setLoadedDetail({ conceptId, detail });
+    });
+    return () => { active = false; };
+  }, [conceptId, loadConceptDetail]);
+
+  const conceptDetail = loadedDetail.conceptId === conceptId ? loadedDetail.detail : null;
+  const detailLoading = Boolean(conceptId) && loadedDetail.conceptId !== conceptId;
+
+  const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const node of nodes) {
-      if (node.kind === "system") continue;
+      if (node.kind !== "concept") continue;
       counts.set(node.group, (counts.get(node.group) ?? 0) + 1);
     }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 4);
+    return [...counts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 5);
   }, [nodes]);
 
-  const selectedConnections = useMemo(() => edges.filter(
-    (edge) => edge.source === selectedNode.id || edge.target === selectedNode.id,
-  ).length, [edges, selectedNode.id]);
+  const highlightedNodeIds = useMemo(() => answer?.highlightedConceptIds ?? [], [answer]);
 
-  const highlightedNodeIds = useMemo(
-    () => answer?.highlightedNodeIds ?? [],
-    [answer],
-  );
+  const selectNode = useCallback((node: ConceptNode) => setSelectedNodeId(node.id), []);
 
   const executeQuery = useCallback(async (rawQuery: string) => {
     const cleanQuery = rawQuery.trim();
@@ -89,44 +124,52 @@ export function JarvisInterface() {
     setState("thinking");
 
     const conversation = conversationRef.current;
-    const baseAnswer = answerKnowledge(
-      nodes,
-      edges,
-      cleanQuery,
-      retrievalContextFromHistory(conversation),
-    );
-    if (baseAnswer.sources.length) {
-      const firstNode = nodes.find((node) => node.id === baseAnswer.sources[0].nodeId);
-      if (firstNode) setSelectedNode(firstNode);
-      setMode("map");
-    }
-
-    if (!baseAnswer.sources.length) {
-      if (requestId === requestIdRef.current) {
-        setAnswer(baseAnswer);
-        conversationRef.current = rememberConversationTurn(conversation, baseAnswer);
-        setState("idle");
-        answerControllerRef.current = null;
-      }
-      return;
-    }
-
     try {
-      const generatedAnswer = await generateKnowledgeAnswer(baseAnswer, nodes, conversation, controller.signal);
+      const retrieval = await searchIndexedKnowledge(
+        cleanQuery,
+        retrievalContextFromHistory(conversation),
+        controller.signal,
+      );
+      const baseAnswer = answerFromChunks(cleanQuery, retrieval.chunks, retrieval.conceptIds);
+      if (retrieval.conceptIds.length) {
+        setSelectedNodeId(retrieval.conceptIds[0]);
+        setMode("map");
+      }
+
+      if (!baseAnswer.sources.length) {
+        if (requestId === requestIdRef.current) {
+          setAnswer(baseAnswer);
+          conversationRef.current = rememberConversationTurn(conversation, baseAnswer);
+        }
+        return;
+      }
+
+      const generatedAnswer = await generateKnowledgeAnswer(
+        baseAnswer,
+        retrieval.chunks,
+        conversation,
+        controller.signal,
+      );
       if (requestId === requestIdRef.current) {
         setAnswer(generatedAnswer);
         conversationRef.current = rememberConversationTurn(conversation, generatedAnswer);
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      const reason = error instanceof Error ? error.message : "Das lokale Modell ist nicht erreichbar.";
+      const reason = error instanceof Error ? error.message : "Der lokale Index ist nicht erreichbar.";
       if (requestId === requestIdRef.current) {
-        const fallbackAnswer = {
-          ...baseAnswer,
-          caveat: `Lokales Modell nicht verfügbar: ${reason} ${baseAnswer.caveat}`,
-        };
-        setAnswer(fallbackAnswer);
-        conversationRef.current = rememberConversationTurn(conversation, fallbackAnswer);
+        setAnswer({
+          query: cleanQuery,
+          status: "not_found",
+          title: "Antwort nicht möglich",
+          summary: reason,
+          confidence: 0,
+          confidenceLabel: "NIEDRIG",
+          evidence: [],
+          sources: [],
+          highlightedConceptIds: [],
+          caveat: "Prüfe den lokalen Index und das Modell im Setup-Dialog.",
+        });
       }
     } finally {
       if (requestId === requestIdRef.current) {
@@ -134,7 +177,7 @@ export function JarvisInterface() {
         setState("idle");
       }
     }
-  }, [edges, nodes, setSelectedNode]);
+  }, []);
 
   const {
     supported: speechSupported,
@@ -155,9 +198,9 @@ export function JarvisInterface() {
     },
   });
 
-  const selectGroup = (group: string) => {
-    const node = nodes.find((candidate) => candidate.group === group);
-    if (node) setSelectedNode(node);
+  const selectCategory = (category: string) => {
+    const node = nodes.find((candidate) => candidate.group === category && candidate.kind === "concept");
+    if (node) setSelectedNodeId(node.id);
     setMode("map");
   };
 
@@ -169,6 +212,9 @@ export function JarvisInterface() {
   const statusText = state === "listening"
     ? "ICH HÖRE ZU"
     : state === "transcribing" ? "SPRACHE WIRD TRANSKRIBIERT" : state === "thinking" ? "ICH VERBINDE WISSEN" : "SYSTEM BEREIT";
+  const conceptCount = nodes.filter((node) => node.kind === "concept").length;
+  // Closing keeps the canvas mounted so the graph layout, zoom and trails survive.
+  const closeSetup = useCallback(() => setSetupOpen(false), []);
 
   return (
     <main className="jarvis-shell">
@@ -187,12 +233,14 @@ export function JarvisInterface() {
       <KnowledgePanels
         mode={mode}
         connected={notionStatus.connected}
-        nodeCount={nodes.filter((node) => node.kind !== "system").length}
-        groups={groupCounts}
+        conceptCount={conceptCount}
+        categories={categoryCounts}
         selectedNode={selectedNode}
-        selectedConnections={selectedConnections}
-        graphMeta={graphMeta}
-        onSelectGroup={selectGroup}
+        detail={conceptDetail}
+        detailLoading={detailLoading}
+        coverage={coverage}
+        sync={indexStatus?.sync ?? null}
+        onSelectCategory={selectCategory}
       />
 
       <section className="visual-stage">
@@ -204,7 +252,7 @@ export function JarvisInterface() {
           edges={edges}
           selectedNodeId={selectedNode.id}
           highlightedNodeIds={highlightedNodeIds}
-          onSelect={setSelectedNode}
+          onSelect={selectNode}
         />
         {mode === "core" && (
           <div className={`core-status state-${state}`}>
@@ -257,35 +305,44 @@ export function JarvisInterface() {
         speechSupported={speechSupported}
         speechError={speechError}
         answer={answer}
-        nodes={nodes}
-        selectedNodeId={selectedNode.id}
         onQueryChange={setQuery}
         onSubmit={runQuery}
         onToggleListening={toggleListening}
         onClearSpeechError={clearSpeechError}
         onCloseAnswer={() => setAnswer(null)}
         onRunPrompt={executeQuery}
-        onSelectResult={(node) => {
-          setSelectedNode(node);
-          setMode("map");
-        }}
       />
 
       <footer className="footer-line">
-        <span>NOTION <i /> {notionStatus.connected ? `${graphMeta?.pageCount ?? 0} SEITEN` : "BEISPIELDATEN"}</span>
-        <span>{briefing ? `BRIEFING ${visibleBriefingItems.length} NEWS` : graphMeta ? `SYNC ${new Date(graphMeta.syncedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : "LOCAL CORE / M4"}</span>
+        <span>NOTION <i /> {notionStatus.connected
+          ? `${NUMBER_FORMAT.format(coverage.foundSources)} QUELLEN · ${NUMBER_FORMAT.format(coverage.chunks)} ABSCHNITTE · ${NUMBER_FORMAT.format(coverage.concepts)} KONZEPTE`
+          : "NICHT VERBUNDEN"}</span>
+        <span>{knowledge.syncedAt
+          ? `SYNC ${new Date(knowledge.syncedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`
+          : briefing ? `BRIEFING ${visibleBriefingItems.length} NEWS` : "LOCAL CORE / M4"}</span>
         <span>{footerDate}</span>
       </footer>
 
-      <NotionSetupDialog
-        open={setupOpen}
-        status={notionStatus}
-        graphMeta={graphMeta}
-        syncing={syncing}
-        error={notionError}
-        onClose={() => setSetupOpen(false)}
-        onSync={() => void loadNotion(true)}
-      />
+      {setupOpen ? (
+        <NotionSetupDialog
+          notionStatus={notionStatus}
+          status={indexStatus}
+          coverage={coverage}
+          databases={knowledge.databases}
+          databasesLoading={knowledge.databasesLoading}
+          savingSelection={knowledge.savingSelection}
+          selectionSavedAt={knowledge.selectionSavedAt}
+          indexAvailable={knowledge.indexAvailable}
+          error={knowledge.error}
+          onClose={closeSetup}
+          onLoadDatabases={knowledge.loadDatabases}
+          onSaveDatabases={(databaseIds) => void knowledge.saveDatabases(databaseIds)}
+          onSync={(syncMode) => void knowledge.startSync(syncMode)}
+          onCancelSync={() => void knowledge.cancelSync()}
+          onInstallEmbeddingModel={() => void knowledge.installEmbeddingModel()}
+          onResetIndex={() => void knowledge.resetIndex()}
+        />
+      ) : null}
     </main>
   );
 }
