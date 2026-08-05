@@ -250,6 +250,21 @@ WEATHER_LATITUDE=49.0134
 WEATHER_LONGITUDE=12.1016
 ```
 
+## Advanced runtime overrides
+
+These variables exist for packaging and local troubleshooting. None of them are required: every
+one has a working default, and the desktop app sets the ones it needs itself. They are omitted
+from `.env.local.example` on purpose so the normal setup stays minimal.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `JARVIS_CONFIG_DIR` | unset | directory holding the runtime `.env.local` and the knowledge index. The Tauri shell sets it to `~/Library/Application Support/com.sissighn.jarvis/` for the packaged sidecar. |
+| `JARVIS_ENV_FILE` | unset | explicit path to the runtime environment file, checked first. The packaged server then falls back to `$JARVIS_CONFIG_DIR/.env.local` and the project's `.env.local`; the standalone indexer falls back to the project file only. |
+| `JARVIS_INDEX_DIR` | unset | index location for the indexer only; used when `JARVIS_CONFIG_DIR` is unset. Without either, the index goes to `~/Library/Application Support/com.sissighn.jarvis/` when `NODE_ENV=production` and to `.jarvis-dev/` otherwise. |
+| `JARVIS_SERVER_PORT` | `4317` | loopback port of the packaged sidecar. The Tauri shell passes its own fixed port; values outside 1–65535 fall back to the default. |
+| `JARVIS_WEB_PORT` | unset | binds the vinext dev server to `127.0.0.1` on this port. `npm run desktop:web` uses it to serve the native development window on `4317`. |
+| `WHISPER_SERVER_BIN` | `/opt/homebrew/bin/whisper-server` | path to the `whisper-server` executable, for a non-Homebrew or custom whisper.cpp build |
+
 ## Data sources and local processing
 
 | Capability | Source | Processing |
@@ -295,7 +310,7 @@ npm run check
 ## Troubleshooting
 
 - **Microphone access denied:** allow microphone access for the local JARVIS URL in the browser, then reload the page.
-- **Whisper is unavailable:** run `npm run setup:speech`, then restart with `npm run dev`.
+- **Whisper is unavailable:** run `npm run setup:speech`, then restart with `npm run dev`. If `whisper-server` is not installed under `/opt/homebrew/bin/`, point `WHISPER_SERVER_BIN` at your build.
 - **Port 8178 is already in use:** stop the older Whisper process before restarting JARVIS, or configure a different local URL consistently.
 - **Technical terms are misheard:** add important recurring vocabulary to the Whisper prompt in `scripts/start-whisper-server.mjs` and `features/speech/server/whisper.ts`.
 - **The first start takes longer:** whisper.cpp loads the local model into unified memory before accepting transcription requests.
