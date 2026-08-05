@@ -291,6 +291,25 @@ button { color: inherit; }
 .text-action { padding: 0; border: 0; background: none; color: #d2b8c4; font-family: var(--font-geist-mono), monospace; font-size: 10px; letter-spacing: .13em; cursor: pointer; }
 .text-action span { margin-left: 8px; }
 .text-action:disabled { color: #5c4952; cursor: default; }
+.index-coverage { margin: 0 0 12px; color: #8c7883; font: 8px/1.6 var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.index-sync { margin: 0 0 14px; padding-left: 8px; border-left: 1px solid rgba(255, 197, 224, .3); color: #b79aa8; font: 8px/1.6 var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.concept-loading { margin-top: 14px; color: #8c7883; font-size: 9px; letter-spacing: .08em; }
+.concept-relations, .concept-occurrences { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.concept-relations .eyebrow, .concept-occurrences .eyebrow { margin-bottom: 9px; font-size: 8px; }
+.concept-relations ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.concept-relations li { display: grid; gap: 3px; padding-left: 8px; border-left: 1px solid rgba(255, 197, 224, .22); }
+.concept-relations strong { color: #e7cddb; font-size: 10px; font-weight: 470; }
+.concept-relations small { color: #8c727e; font-size: 8px; line-height: 1.5; }
+.concept-occurrences article { margin-bottom: 14px; }
+.concept-occurrences h3 { display: flex; justify-content: space-between; margin: 0 0 7px; color: #c9b1bd; font: 9px var(--font-geist-mono), monospace; font-weight: 450; letter-spacing: .12em; }
+.concept-occurrences h3 b { color: #8c727e; font-weight: 400; }
+.concept-occurrences ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.concept-occurrences li { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid rgba(255, 215, 234, .09); background: rgba(255, 214, 234, .022); }
+.concept-occurrences strong { color: #ddc4cf; font-size: 10px; font-weight: 500; }
+.concept-occurrences small { color: #8c727e; font-size: 7px; letter-spacing: .06em; }
+.concept-occurrences p { margin: 2px 0 0; color: #9c838f; font-size: 9px; line-height: 1.5; }
+.concept-occurrences a { color: #cbaebc; font: 7px var(--font-geist-mono), monospace; letter-spacing: .12em; text-decoration: none; }
+.concept-occurrences a:hover { color: #ffe3f0; }
 
 .briefing-panel {
   position: absolute;

@@ -50,8 +50,8 @@
 .answer-evidence { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .answer-evidence li { border: 1px solid rgba(255, 215, 234, .095); background: rgba(255, 214, 234, .025); }
 .answer-evidence li:hover { border-color: rgba(255, 215, 234, .18); background: rgba(255, 210, 232, .045); }
-.answer-evidence button { width: 100%; display: grid; grid-template-columns: 23px 1fr; gap: 3px 9px; padding: 10px 11px; border: 0; background: none; text-align: left; cursor: pointer; }
-.answer-evidence button > span { grid-row: 1 / 3; padding-top: 2px; color: #8d6f7d; font: 7px var(--font-geist-mono), monospace; }
+.answer-evidence li { display: grid; grid-template-columns: 23px 1fr; gap: 3px 9px; padding: 10px 11px; }
+.answer-evidence li > span { grid-row: 1 / 3; padding-top: 2px; color: #8d6f7d; font: 7px var(--font-geist-mono), monospace; }
 .answer-evidence p { margin: 0; color: #d4bdc8; font-size: 10px; line-height: 1.5; }
 .answer-evidence small { color: #927582; font-size: 7px; letter-spacing: .07em; }
 .answer-caveat { margin: 11px 0 0; padding-left: 9px; border-left: 1px solid rgba(255, 197, 224, .22); color: #957c88; font-size: 8px; line-height: 1.5; }
@@ -64,14 +64,14 @@
   border-left: 1px solid rgba(255, 193, 222, .42);
   background: linear-gradient(90deg, rgba(255, 191, 221, .07), transparent 54%);
 }
-.answer-sources article.is-cited .answer-source-button { padding-left: 8px; }
+.answer-sources article.is-cited .answer-source-body { padding-left: 8px; }
 .answer-sources article:hover { background: rgba(255, 211, 232, .035); }
-.answer-source-button { width: 100%; display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 9px 28px 9px 0; border: 0; background: none; text-align: left; cursor: pointer; }
-.answer-source-button > span { padding-top: 2px; color: #806b75; font: 7px var(--font-geist-mono), monospace; letter-spacing: .08em; }
-.answer-source-button > div { min-width: 0; display: grid; gap: 3px; }
-.answer-source-button strong { overflow: hidden; color: #dec6d2; font-size: 10px; font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
-.answer-source-button small { color: #8c727e; font-size: 7px; letter-spacing: .07em; }
-.answer-source-button p {
+.answer-source-body { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 9px 28px 9px 0; text-align: left; }
+.answer-source-body > span { padding-top: 2px; color: #806b75; font: 7px var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.answer-source-body > div { min-width: 0; display: grid; gap: 3px; }
+.answer-source-body strong { overflow: hidden; color: #dec6d2; font-size: 10px; font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
+.answer-source-body small { color: #8c727e; font-size: 7px; letter-spacing: .07em; }
+.answer-source-body p {
   display: -webkit-box;
   overflow: hidden;
   margin: 2px 0 0;
