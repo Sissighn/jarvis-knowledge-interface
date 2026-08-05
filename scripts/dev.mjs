@@ -5,6 +5,7 @@ if (process.env.JARVIS_WEB_PORT) webArguments.push("--", "--host", "127.0.0.1", 
 
 const processes = [
   spawn("npm", webArguments, { stdio: "inherit" }),
+  spawn("npm", ["run", "dev:indexer"], { stdio: "inherit" }),
   spawn("npm", ["run", "dev:speech"], { stdio: "inherit" }),
 ];
 let shuttingDown = false;
@@ -25,6 +26,12 @@ processes[0].on("exit", (code) => {
 });
 
 processes[1].on("exit", (code) => {
+  if (!shuttingDown && code !== 0) {
+    console.warn("The local knowledge indexer stopped; the interface keeps the last index view.");
+  }
+});
+
+processes[2].on("exit", (code) => {
   if (!shuttingDown && code !== 0) {
     console.warn("Local speech-to-text is unavailable; the web interface remains active.");
   }
