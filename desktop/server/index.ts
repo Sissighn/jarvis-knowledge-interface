@@ -3,6 +3,7 @@ import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { assets } from "../../.desktop-build/assets.generated.mjs";
 import worker from "../../dist/server/index.js";
+import { handleKnowledgeRequest, isKnowledgeRequest } from "../indexer/api";
 
 type AssetEntry = {
   contentType: string;
@@ -136,6 +137,11 @@ const server = createServer(async (request, response) => {
     const webRequest = await toWebRequest(request, port);
     if (assetEntry(webRequest)) {
       await sendResponse(assetResponse(webRequest), response);
+      return;
+    }
+    // The local knowledge index runs in this Node process, never inside the worker.
+    if (isKnowledgeRequest(new URL(webRequest.url).pathname)) {
+      await sendResponse(await handleKnowledgeRequest(webRequest), response);
       return;
     }
     await sendResponse(await worker.fetch(webRequest, environment, context), response);
