@@ -24,7 +24,8 @@ test("server-renders the JARVIS interface", async () => {
   assert.match(html, /PERSONAL KNOWLEDGE INTERFACE/);
   assert.match(html, /NOTION SETUP/);
   assert.match(html, /SYSTEM BEREIT/);
-  assert.match(html, /BEISPIELDATEN/);
+  assert.match(html, /NICHT VERBUNDEN/);
+  assert.doesNotMatch(html, /BEISPIELDATEN/);
   assert.doesNotMatch(html, /NOTION_ACCESS_TOKEN|secret_your_internal_notion_token/);
 });
 
@@ -32,6 +33,14 @@ test("returns a safe disconnected Notion status without local credentials", asyn
   const response = await request("/api/notion/status", "application/json");
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { configured: false, connected: false });
+});
+
+test("reports that the knowledge index needs the desktop runtime", async () => {
+  const response = await request("/api/knowledge/status", "application/json");
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.code, "desktop_required");
+  assert.match(payload.error, /Desktop-App/);
 });
 
 test("exposes a stable local-model status contract", async () => {
@@ -96,4 +105,18 @@ test("keeps the Notion token on the server side", async () => {
   assert.match(notion, /Authorization: `Bearer \$\{token\}`/);
   assert.doesNotMatch(glossary, /NOTION_ACCESS_TOKEN/);
   assert.match(gitignore, /^\.env\*$/m);
+});
+
+test("keeps indexed Notion content out of the cloud and the browser", async () => {
+  const [hosting, gitignore, indexHook, database] = await Promise.all([
+    readFile(new URL("../../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../../.gitignore", import.meta.url), "utf8"),
+    readFile(new URL("../../features/interface/hooks/useKnowledgeIndex.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../desktop/indexer/db/database.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.deepEqual(JSON.parse(hosting), { d1: null, r2: null });
+  assert.match(gitignore, /^\/\.jarvis-dev\/$/m);
+  assert.doesNotMatch(indexHook, /localStorage|sessionStorage|indexedDB/);
+  assert.match(database, /node:sqlite/);
 });

@@ -1,74 +1,79 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  searchKnowledge,
+  buildSnippet,
+  isFollowUpQuery,
+  matchingTerms,
+  reciprocalRankFusion,
+  retrievalTerms,
   selectRelevantPassages,
-  type SearchableKnowledgeNode,
+  toFtsQuery,
+  tokenizeKnowledgeText,
 } from "../../features/knowledge/search";
 
-const nodes: SearchableKnowledgeNode[] = [
-  {
-    id: "system",
-    label: "Notion",
-    group: "System",
-    kind: "system",
-  },
-  {
-    id: "ml",
-    label: "Machine Learning Prüfung",
-    group: "Universität",
-    kind: "page",
-    content: "Zusammenfassung zu neuronalen Netzen, Optimierung und Backpropagation.",
-    keywords: ["machine", "learning", "neuronale"],
-  },
-  {
-    id: "recipes",
-    label: "Rezepte",
-    group: "Privat",
-    kind: "page",
-    content: "Schnelle vegetarische Gerichte für die Woche.",
-  },
-];
+test("tokenises German technical text without stop words", () => {
+  const terms = tokenizeKnowledgeText("Was ist die Policy im Reinforcement Learning?");
 
-test("ranks the most relevant knowledge node first", () => {
-  const results = searchKnowledge(nodes, "neuronale Netze Prüfung");
-
-  assert.equal(results[0]?.nodeId, "ml");
-  assert.ok((results[0]?.score ?? 0) > 0);
-  assert.deepEqual(results[0]?.matchedTerms.sort(), ["netze", "neuronale", "prüfung"]);
+  assert.deepEqual(terms, ["policy", "reinforcement", "learning"]);
 });
 
-test("ignores system nodes and empty queries", () => {
-  assert.deepEqual(searchKnowledge(nodes, "Notion"), []);
-  assert.deepEqual(searchKnowledge(nodes, "   "), []);
-});
-
-test("caps the result count at five", () => {
-  const manyNodes = Array.from({ length: 8 }, (_, index): SearchableKnowledgeNode => ({
-    id: `node-${index}`,
-    label: `Coding Notiz ${index}`,
-    group: "Projekte",
-    kind: "page",
-    content: "Coding TypeScript React",
-  }));
-
-  assert.equal(searchKnowledge(manyNodes, "Coding", 20).length, 5);
-});
-
-test("uses recent questions to resolve a short follow-up", () => {
-  const results = searchKnowledge(nodes, "Wie funktioniert das genau?", 5, {
-    previousQueries: ["Erkläre mir neuronale Netze für die Prüfung"],
-    preferredNodeIds: ["ml"],
+test("expands short follow-up questions with previous queries", () => {
+  const { queryTerms, historyTerms } = retrievalTerms("Und dazu?", {
+    previousQueries: ["Was ist Reinforcement Learning?"],
   });
 
-  assert.equal(results[0]?.nodeId, "ml");
-  assert.ok(results[0]?.matchedTerms.includes("neuronale"));
+  assert.ok(isFollowUpQuery("Und dazu?"));
+  assert.deepEqual(queryTerms, ["dazu"]);
+  assert.deepEqual(historyTerms, ["reinforcement", "learning"]);
 });
 
-test("selects focused passages instead of sending the start of a long page", () => {
-  const content = `${"Allgemeine organisatorische Hinweise ohne Fachinhalt. ".repeat(70)}\n\nBackpropagation berechnet den Gradienten des Fehlers vom Ausgang zum Eingang.`;
-  const passage = selectRelevantPassages(content, "Wie funktioniert Backpropagation?", [], 420);
+test("keeps a full question independent from the history", () => {
+  const { historyTerms } = retrievalTerms("Wie unterscheidet sich Supervised Learning von Reinforcement Learning?", {
+    previousQueries: ["Rezepte für die Woche"],
+  });
 
-  assert.match(passage, /berechnet den Gradienten/);
-  assert.ok(passage.length <= 420);
+  assert.deepEqual(historyTerms, []);
+});
+
+test("quotes FTS terms instead of interpolating query syntax", () => {
+  const expression = toFtsQuery(["policy", "reward*", "rein\"forcement"]);
+
+  assert.equal(expression, '"policy"* OR "reward*"* OR "reinforcement"*');
+});
+
+test("fuses lexical and semantic rankings with reciprocal rank fusion", () => {
+  const fused = reciprocalRankFusion([
+    ["c1", "c2", "c3"],
+    ["c3", "c1", "c9"],
+  ]);
+
+  assert.equal(fused[0].id, "c1");
+  assert.deepEqual(fused.map((entry) => entry.id).slice(0, 3), ["c1", "c3", "c2"]);
+  assert.ok(fused.every((entry) => entry.score > 0));
+});
+
+test("builds a snippet around the matched term", () => {
+  const content = `${"Vorlauf ".repeat(40)}Die Policy bildet Zustände auf Aktionen ab. ${"Nachlauf ".repeat(40)}`;
+  const snippet = buildSnippet(content, ["policy"]);
+
+  assert.ok(snippet.toLocaleLowerCase("de-DE").includes("policy"));
+  assert.ok(snippet.length <= 236);
+});
+
+test("selects the most relevant passages of a long chunk", () => {
+  const content = [
+    "Ein Kapitel über Kochrezepte und Einkaufslisten. ".repeat(12),
+    "Reinforcement Learning optimiert eine Policy anhand von Belohnung.",
+    "Weitere unwichtige Randnotizen ohne Bezug. ".repeat(12),
+  ].join("\n\n");
+
+  const passages = selectRelevantPassages(content, "Wie optimiert Reinforcement Learning die Policy?", [], 400);
+
+  assert.ok(passages.includes("Reinforcement Learning optimiert eine Policy"));
+  assert.ok(passages.length <= 400);
+});
+
+test("matches related word forms", () => {
+  assert.deepEqual(matchingTerms(["learning"], ["learnings", "policy"]), ["learning"]);
+  assert.deepEqual(matchingTerms(["policy"], ["reward"]), []);
 });

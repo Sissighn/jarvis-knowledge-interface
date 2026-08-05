@@ -10,7 +10,7 @@ import type { KnowledgeAnswer } from "../../features/knowledge/answer";
 const history: ConversationTurn[] = [{
   question: "Was ist Reinforcement Learning?",
   answer: "Ein Agent lernt aus Feedback.",
-  sourceNodeIds: ["rl"],
+  sourceIds: ["rl"],
 }];
 
 const answer: KnowledgeAnswer = {
@@ -22,10 +22,30 @@ const answer: KnowledgeAnswer = {
   confidenceLabel: "HOCH",
   evidence: [],
   sources: [
-    { nodeId: "related", label: "Überblick", group: "ML", snippet: "Überblick", score: 0.6, matchedTerms: [] },
-    { nodeId: "rl", label: "RL", group: "ML", snippet: "Agent", score: 0.9, matchedTerms: ["agent"] },
+    {
+      chunkId: "related:0",
+      sourceId: "related",
+      sourceTitle: "Überblick",
+      rootTitle: "Courses",
+      headingPath: "AI Methods",
+      snippet: "Überblick",
+      notionUrl: "https://notion.so/related",
+      score: 0.6,
+      matchedTerms: [],
+    },
+    {
+      chunkId: "rl:2",
+      sourceId: "rl",
+      sourceTitle: "RL",
+      rootTitle: "Courses",
+      headingPath: "AI Methods / RL",
+      snippet: "Agent",
+      notionUrl: "https://notion.so/rl",
+      score: 0.9,
+      matchedTerms: ["agent"],
+    },
   ],
-  highlightedNodeIds: ["rl"],
+  highlightedConceptIds: ["concept:reinforcement-learning"],
   caveat: "Belegt",
   generation: {
     provider: "ollama",
@@ -40,12 +60,12 @@ test("turns recent conversation into weak retrieval guidance", () => {
   const context = retrievalContextFromHistory(history);
 
   assert.deepEqual(context.previousQueries, ["Was ist Reinforcement Learning?"]);
-  assert.deepEqual(context.preferredNodeIds, ["rl"]);
+  assert.deepEqual(context.preferredSourceIds, ["rl"]);
 });
 
 test("remembers only sources actually cited by the answer", () => {
   const updated = rememberConversationTurn(history, answer);
 
   assert.equal(updated.length, 2);
-  assert.deepEqual(updated.at(-1)?.sourceNodeIds, ["rl"]);
+  assert.deepEqual(updated.at(-1)?.sourceIds, ["rl"]);
 });

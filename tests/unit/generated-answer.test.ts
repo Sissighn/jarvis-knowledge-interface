@@ -12,20 +12,23 @@ const baseAnswer: KnowledgeAnswer = {
   confidence: 0.79,
   confidenceLabel: "HOCH",
   evidence: [{
-    nodeId: "rl",
-    label: "Reinforcement Learning",
-    group: "Machine Learning",
+    chunkId: "rl:0",
+    sourceTitle: "AI Methods",
+    headingPath: "Reinforcement Learning",
     text: "Ein Agent lernt durch die Interaktion mit einer Umgebung.",
   }],
   sources: [{
-    nodeId: "rl",
-    label: "Reinforcement Learning",
-    group: "Machine Learning",
+    chunkId: "rl:0",
+    sourceId: "rl",
+    sourceTitle: "AI Methods",
+    rootTitle: "Courses",
+    headingPath: "Reinforcement Learning",
     snippet: "Ein Agent lernt durch die Interaktion mit einer Umgebung.",
+    notionUrl: "https://notion.so/ai-methods",
     score: 0.79,
     matchedTerms: ["reinforcement", "learning"],
   }],
-  highlightedNodeIds: ["rl"],
+  highlightedConceptIds: ["concept:reinforcement-learning"],
   caveat: "Lokale Extraktion.",
 };
 
@@ -43,7 +46,7 @@ test("merges a grounded local-model answer without losing its sources", () => {
   assert.equal(answer.status, "answered");
   assert.equal(answer.evidence.length, 0);
   assert.equal(answer.sources, baseAnswer.sources);
-  assert.deepEqual(answer.highlightedNodeIds, ["rl"]);
+  assert.deepEqual(answer.highlightedConceptIds, ["concept:reinforcement-learning"]);
   assert.deepEqual(answer.generation?.citations, [1]);
   assert.equal(answer.generation?.conversationTurns, 2);
   assert.match(answer.summary, /Agenten durch Feedback/);
