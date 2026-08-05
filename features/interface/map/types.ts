@@ -1,7 +1,7 @@
-import type { KnowledgeNode } from "../types";
+import type { ConceptNode } from "../types";
 
 export type MapPoint = {
-  node: KnowledgeNode;
+  node: ConceptNode;
   x: number;
   y: number;
   worldX: number;

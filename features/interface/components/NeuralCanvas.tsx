@@ -2,22 +2,23 @@
 
 import type React from "react";
 import { useEffect, useRef } from "react";
-import type { CoreState, KnowledgeEdge, KnowledgeNode, ViewMode } from "../types";
+import type { ConceptEdge, ConceptNode, CoreState, ViewMode } from "../types";
 import { renderCoreFrame } from "../renderers/core-renderer";
 import { renderMapFrame } from "../renderers/map-renderer";
-import { createMapViewport, resetMapViewport, stepMapViewport } from "../map/map-viewport";
+import { createMapViewport, resetMapViewport, stepMapViewport, type Point } from "../map/map-viewport";
 import type { CanvasSize, MapPoint } from "../map/types";
 import { useMapInteractions } from "../hooks/useMapInteractions";
 import { MapControls } from "./MapControls";
+import { createForceSimulation, syncForceSimulation } from "../map/force-simulation";
 
 export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, onSelect }: {
   state: CoreState;
   mode: ViewMode;
-  nodes: KnowledgeNode[];
-  edges: KnowledgeEdge[];
+  nodes: ConceptNode[];
+  edges: ConceptEdge[];
   selectedNodeId: string;
   highlightedNodeIds: string[];
-  onSelect: (node: KnowledgeNode) => void;
+  onSelect: (node: ConceptNode) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
@@ -34,8 +35,12 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
   });
   const coreBoundsRef = useRef({ x: 0, y: 0, radius: 0 });
   const mapPointsRef = useRef<MapPoint[]>([]);
+  // Trails outlive the draw effect so a graph update does not wipe the motion history.
+  const mapTrailsRef = useRef(new Map<string, Point[]>());
   const canvasSizeRef = useRef<CanvasSize>({ width: 0, height: 0 });
   const viewportRef = useRef(createMapViewport());
+  const forceSimulationRef = useRef(createForceSimulation(nodes, edges));
+  useEffect(() => syncForceSimulation(forceSimulationRef.current, nodes, edges), [nodes, edges]);
   const {
     hoveredNodeRef: mapHoveredNodeRef,
     focusActive: mapFocusActive,
@@ -59,6 +64,7 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
     canvasSizeRef,
     selectedNodeId,
     onSelect,
+    forceSimulationRef,
   });
 
   useEffect(() => {
@@ -157,9 +163,11 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
           highlightedNodeIds,
           hoveredNodeId: mapHoveredNodeRef.current,
           mapPoints: mapPointsRef,
+          trails: mapTrailsRef,
           viewport: viewportRef.current,
           focusActive: mapFocusActive,
           reducedMotion: reduceMotion,
+          simulation: forceSimulationRef.current,
         });
       }
       if (!reduceMotion) time += 0.012;

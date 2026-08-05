@@ -2,8 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import type React from "react";
-import type { KnowledgeNode, ViewMode } from "../types";
+import type { ConceptNode, ViewMode } from "../types";
 import type { CanvasSize, MapPoint } from "../map/types";
+import { moveForceNode, releaseForceNode, type ForceSimulation } from "../map/force-simulation";
 import {
   focusMapOn,
   mapSceneCenter,
@@ -19,7 +20,8 @@ type MapInteractionOptions = {
   mapPointsRef: React.MutableRefObject<MapPoint[]>;
   canvasSizeRef: React.MutableRefObject<CanvasSize>;
   selectedNodeId: string;
-  onSelect: (node: KnowledgeNode) => void;
+  onSelect: (node: ConceptNode) => void;
+  forceSimulationRef: React.MutableRefObject<ForceSimulation>;
 };
 
 const HIT_RADIUS = 26;
@@ -31,6 +33,7 @@ export function useMapInteractions({
   canvasSizeRef,
   selectedNodeId,
   onSelect,
+  forceSimulationRef,
 }: MapInteractionOptions) {
   const hoveredNodeRef = useRef<string | null>(null);
   const [focusActive, setFocusActive] = useState(false);
@@ -42,6 +45,7 @@ export function useMapInteractions({
     lastY: 0,
     startX: 0,
     startY: 0,
+    nodeId: null as string | null,
   });
 
   const localPoint = useCallback((event: React.PointerEvent<HTMLCanvasElement> | React.WheelEvent<HTMLCanvasElement>) => {
@@ -103,9 +107,13 @@ export function useMapInteractions({
       const deltaY = event.clientY - gesture.lastY;
       if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 4) gesture.moved = true;
       const { width, height } = canvasSizeRef.current;
-      panMap(viewportRef.current, deltaX, deltaY, width, height);
-      viewportRef.current.x = viewportRef.current.targetX;
-      viewportRef.current.y = viewportRef.current.targetY;
+      if (gesture.nodeId) {
+        moveForceNode(forceSimulationRef.current, gesture.nodeId, deltaX, deltaY, viewportRef.current.zoom);
+      } else {
+        panMap(viewportRef.current, deltaX, deltaY, width, height);
+        viewportRef.current.x = viewportRef.current.targetX;
+        viewportRef.current.y = viewportRef.current.targetY;
+      }
       gesture.lastX = event.clientX;
       gesture.lastY = event.clientY;
       hoveredNodeRef.current = null;
@@ -115,7 +123,7 @@ export function useMapInteractions({
     const closest = closestPoint(point.x, point.y);
     hoveredNodeRef.current = closest?.node.id ?? null;
     event.currentTarget.style.cursor = closest ? "pointer" : "grab";
-  }, [canvasSizeRef, closestPoint, localPoint, mode, viewportRef]);
+  }, [canvasSizeRef, closestPoint, forceSimulationRef, localPoint, mode, viewportRef]);
 
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     if (mode !== "map" || event.button !== 0) return;
@@ -124,7 +132,6 @@ export function useMapInteractions({
     if (hit) {
       onSelect(hit.node);
       setFocusActive(true);
-      return;
     }
     const gesture = gestureRef.current;
     gesture.dragging = true;
@@ -134,6 +141,7 @@ export function useMapInteractions({
     gesture.lastY = event.clientY;
     gesture.startX = event.clientX;
     gesture.startY = event.clientY;
+    gesture.nodeId = hit?.node.kind === "concept" ? hit.node.id : null;
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.style.cursor = "grabbing";
   }, [closestPoint, localPoint, mode, onSelect]);
@@ -143,11 +151,14 @@ export function useMapInteractions({
     const gesture = gestureRef.current;
     if (!gesture.dragging) return;
     const wasMoved = gesture.moved;
+    const nodeId = gesture.nodeId;
     gesture.dragging = false;
+    gesture.nodeId = null;
+    if (nodeId) releaseForceNode(forceSimulationRef.current, nodeId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     event.currentTarget.style.cursor = "grab";
-    if (!wasMoved) setFocusActive(false);
-  }, [mode]);
+    if (!wasMoved && !nodeId) setFocusActive(false);
+  }, [forceSimulationRef, mode]);
 
   const onWheel = useCallback((event: React.WheelEvent<HTMLCanvasElement>) => {
     if (mode !== "map") return;
@@ -167,8 +178,8 @@ export function useMapInteractions({
     if (mode !== "map") return;
     const rect = event.currentTarget.getBoundingClientRect();
     const hit = closestPoint(event.clientX - rect.left, event.clientY - rect.top, 32);
-    if (hit?.node.kind !== "system" && hit?.node.url) {
-      window.open(hit.node.url, "_blank", "noopener,noreferrer");
+    if (hit?.node.kind !== "system" && hit?.node.notionUrl) {
+      window.open(hit.node.notionUrl, "_blank", "noopener,noreferrer");
     }
   }, [closestPoint, mode]);
 

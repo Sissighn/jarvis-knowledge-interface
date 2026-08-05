@@ -1,6 +1,7 @@
 import type { Point } from "./map-viewport";
 
-function stableUnit(value: string, salt: number) {
+/** Deterministic 0..1 value, so seeded motion survives reloads and re-renders. */
+export function stableUnit(value: string, salt: number) {
   let hash = 2166136261 ^ salt;
   for (let index = 0; index < value.length; index++) {
     hash ^= value.charCodeAt(index);

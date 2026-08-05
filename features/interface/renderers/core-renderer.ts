@@ -1,4 +1,14 @@
 import type { CoreState } from "../types";
+import {
+  beginNeuralInk,
+  endNeuralInk,
+  fillNeuralHalo,
+  fillNeuralPoint,
+  neuralDepthAlpha,
+  strokeNeuralFilament,
+  strokeNeuralLink,
+  strokeNeuralTrail,
+} from "./neural-style";
 
 export type CoreBounds = { x: number; y: number; radius: number };
 export type CorePointer = { x: number; y: number; active: boolean };
@@ -108,7 +118,7 @@ export function renderCoreFrame({
       x: cx + x1 * baseRadius * perspective * pulse,
       y: cy + y1 * baseRadius * perspective * pulse,
       z: z2,
-      a: Math.max(0.06, 0.18 + (z2 + 0.5) * 0.46),
+      a: neuralDepthAlpha(z2),
     };
   };
 
@@ -123,37 +133,22 @@ export function renderCoreFrame({
     projected.push({ ...point, bright: particle.bright, trail: particle.trail });
   }
 
-  context.globalCompositeOperation = "lighter";
+  beginNeuralInk(context);
 
   // Long, moving filaments create the fluid, hand-drawn neural silhouette.
   for (const filament of filaments) {
-    context.strokeStyle = `rgba(255, 218, 236, ${filament.alpha})`;
-    context.lineWidth = 0.42 + filament.alpha * 4;
-    context.beginPath();
-    for (let step = 0; step <= 34; step++) {
-      const progress = step / 34;
+    strokeNeuralFilament(context, filament.alpha, 34, (progress) => {
       const u = filament.u + time * filament.speed * flowSpeed + progress * filament.span;
       const v = filament.v
         + progress * 0.32
         + Math.sin(progress * 8 + filament.phase + time * 0.8) * 0.24;
-      const point = projectFlowPoint(u, v, filament.phase);
-      if (step === 0) context.moveTo(point.x, point.y);
-      else context.lineTo(point.x, point.y);
-    }
-    context.stroke();
+      return projectFlowPoint(u, v, filament.phase);
+    });
   }
 
   // Short motion trails make each node visibly travel through the structure.
   for (const point of projected) {
-    if (point.trail.length < 2) continue;
-    context.strokeStyle = `rgba(255, 211, 232, ${point.bright ? 0.22 : 0.038})`;
-    context.lineWidth = point.bright ? 0.75 : 0.32;
-    context.beginPath();
-    point.trail.forEach((trailPoint, index) => {
-      if (index === 0) context.moveTo(trailPoint.x, trailPoint.y);
-      else context.lineTo(trailPoint.x, trailPoint.y);
-    });
-    context.stroke();
+    strokeNeuralTrail(context, point.trail, point.bright);
   }
 
   // Connections are recalculated every frame, so the network never freezes.
@@ -168,49 +163,30 @@ export function renderCoreFrame({
       const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance < linkDistance && Math.abs(a.z - b.z) < 0.42) {
         const opacity = Math.max(0, 1 - distance / linkDistance) * 0.19 * Math.min(a.a, b.a);
-        context.strokeStyle = `rgba(255, 216, 235, ${opacity})`;
-        context.lineWidth = 0.34 + opacity * 1.8;
-        context.beginPath();
-        context.moveTo(a.x, a.y);
-        const bow = Math.sin(i * 1.7 + time * 1.7) * 4;
-        context.quadraticCurveTo(
-          (a.x + b.x) / 2 + bow,
-          (a.y + b.y) / 2 - bow,
-          b.x,
-          b.y,
-        );
-        context.stroke();
+        strokeNeuralLink(context, a, b, opacity, Math.sin(i * 1.7 + time * 1.7) * 4);
         connections++;
       }
     }
   }
 
   for (const point of projected) {
-    const pointRadius = point.bright ? 1.55 : 0.38 + point.a * 0.5;
-    if (point.bright) {
-      const glow = context.createRadialGradient(point.x, point.y, 0, point.x, point.y, 10);
-      glow.addColorStop(0, "rgba(255,255,255,.95)");
-      glow.addColorStop(0.18, "rgba(255,205,229,.58)");
-      glow.addColorStop(1, "rgba(255,205,229,0)");
-      context.fillStyle = glow;
-      context.beginPath();
-      context.arc(point.x, point.y, 10, 0, Math.PI * 2);
-      context.fill();
-    }
-    context.fillStyle = `rgba(255, 240, 247, ${Math.min(1, point.a + (point.bright ? .35 : 0))})`;
-    context.beginPath();
-    context.arc(point.x, point.y, pointRadius, 0, Math.PI * 2);
-    context.fill();
+    fillNeuralPoint(context, point.x, point.y, {
+      alpha: point.a,
+      radius: point.bright ? 1.55 : 0.38 + point.a * 0.5,
+      bright: point.bright,
+    });
   }
 
-  context.globalCompositeOperation = "source-over";
+  endNeuralInk(context);
 
-  const halo = context.createRadialGradient(cx, cy, baseRadius * 0.1, cx, cy, baseRadius * 1.24);
-  halo.addColorStop(0, "rgba(14, 7, 11, 0)");
-  halo.addColorStop(0.67, state === "listening" ? "rgba(255,174,213,.065)" : "rgba(255,193,222,.035)");
-  halo.addColorStop(1, "rgba(0,0,0,0)");
-  context.fillStyle = halo;
-  context.fillRect(0, 0, width, height);
+  fillNeuralHalo(context, {
+    x: cx,
+    y: cy,
+    radius: baseRadius,
+    width,
+    height,
+    accent: state === "listening" ? "rgba(255,174,213,.065)" : "rgba(255,193,222,.035)",
+  });
 
   return { hoverX, hoverY };
 }
