@@ -1,61 +1,154 @@
-import type { GraphPayload, KnowledgeNode, ViewMode } from "../types";
+import type { ConceptDetail, ConceptNode, KnowledgeCoverage, SyncProgress, ViewMode } from "../types";
 
 type KnowledgePanelsProps = {
   mode: ViewMode;
   connected: boolean;
-  nodeCount: number;
-  groups: Array<[string, number]>;
-  selectedNode: KnowledgeNode;
-  selectedConnections: number;
-  graphMeta: Omit<GraphPayload, "nodes" | "edges"> | null;
-  onSelectGroup(group: string): void;
+  conceptCount: number;
+  categories: Array<[string, number]>;
+  selectedNode: ConceptNode;
+  detail: ConceptDetail | null;
+  detailLoading: boolean;
+  coverage: KnowledgeCoverage;
+  sync: SyncProgress | null;
+  onSelectCategory(category: string): void;
 };
+
+const NUMBER_FORMAT = new Intl.NumberFormat("de-DE");
+
+const SYNC_LABELS: Record<string, string> = {
+  queued: "Sync vorbereitet",
+  discovering: "Datenbanken werden gesucht",
+  fetching: "Notion-Inhalte werden gelesen",
+  indexing: "Konzepte werden aktualisiert",
+  embedding: "Semantische Suche wird ergänzt",
+  partial: "Teilweise aktualisiert",
+  error: "Sync unterbrochen",
+  cancelled: "Sync abgebrochen",
+  interrupted: "Sync wird fortgesetzt",
+};
+
+function groupOccurrences(detail: ConceptDetail | null) {
+  const groups = new Map<string, ConceptDetail["occurrences"]>();
+  for (const occurrence of detail?.occurrences ?? []) {
+    const entries = groups.get(occurrence.rootTitle) ?? [];
+    entries.push(occurrence);
+    groups.set(occurrence.rootTitle, entries);
+  }
+  return [...groups.entries()];
+}
 
 export function KnowledgePanels({
   mode,
   connected,
-  nodeCount,
-  groups,
+  conceptCount,
+  categories,
   selectedNode,
-  selectedConnections,
-  graphMeta,
-  onSelectGroup,
+  detail,
+  detailLoading,
+  coverage,
+  sync,
+  onSelectCategory,
 }: KnowledgePanelsProps) {
+  const isSystemNode = selectedNode.kind === "system";
+  const occurrenceGroups = groupOccurrences(detail);
+  const relations = detail?.relations.slice(0, 6) ?? [];
+  const syncLabel = sync && !["idle", "ready"].includes(sync.phase) ? SYNC_LABELS[sync.phase] : null;
+
   return (
     <>
       <aside className="index-panel" aria-label="Wissensübersicht">
-        <span className="eyebrow">NEURAL INDEX</span>
-        <strong>{nodeCount}</strong>
-        <span className="index-caption">{connected ? "ECHTE KNOTEN" : "BEISPIELKNOTEN"}</span>
+        <span className="eyebrow">CONCEPT INDEX</span>
+        <strong>{NUMBER_FORMAT.format(conceptCount)}</strong>
+        <span className="index-caption">{connected ? "KONZEPTE" : "NICHT VERBUNDEN"}</span>
+        <p className="index-coverage">
+          {NUMBER_FORMAT.format(coverage.foundSources)} Quellen · {NUMBER_FORMAT.format(coverage.chunks)} Abschnitte
+          {" · "}{NUMBER_FORMAT.format(coverage.relations)} Beziehungen
+        </p>
+        {syncLabel ? (
+          <p className="index-sync" aria-live="polite">
+            {syncLabel}
+            {sync?.totalSources ? ` · Quelle ${sync.processedSources} von ${sync.totalSources}` : ""}
+            {sync?.totalDatabases ? ` · Datenbank ${Math.min(sync.processedDatabases + 1, sync.totalDatabases)} von ${sync.totalDatabases}` : ""}
+            {sync?.currentSource ? <><br />{sync.currentSource}</> : null}
+          </p>
+        ) : null}
         <div className="index-list">
-          {groups.map(([group, count]) => (
-            <button key={group} onClick={() => onSelectGroup(group)}><i /> {group} <b>{count}</b></button>
+          {categories.map(([category, count]) => (
+            <button key={category} onClick={() => onSelectCategory(category)}><i /> {category} <b>{count}</b></button>
           ))}
         </div>
       </aside>
 
       <aside className={`context-panel ${mode === "map" ? "is-visible" : ""}`} aria-live="polite">
-        <span className="eyebrow">AUSGEWÄHLTER KNOTEN</span>
-        <h2>{selectedNode.icon ? <span className="node-icon">{selectedNode.icon}</span> : null}{selectedNode.label}</h2>
-        <p>{selectedNode.content || (selectedNode.kind === "system"
-          ? `${graphMeta?.clusterCount ?? groups.length} lokale Themencluster mit ${graphMeta?.similarityEdgeCount ?? 0} automatisch erkannten Ähnlichkeiten.`
-          : `Verknüpfte Notion-Inhalte und semantische Beziehungen rund um ${selectedNode.label}.`)}</p>
-        {selectedNode.keywords?.length ? (
-          <div className="keyword-list" aria-label="Erkannte Schlüsselbegriffe">
-            {selectedNode.keywords.slice(0, 4).map((keyword) => <span key={keyword}>{keyword}</span>)}
+        <span className="eyebrow">{isSystemNode ? "WISSENSINDEX" : "AUSGEWÄHLTES KONZEPT"}</span>
+        <h2>{selectedNode.label}</h2>
+        <p>{isSystemNode
+          ? `${NUMBER_FORMAT.format(coverage.concepts)} Konzepte aus ${NUMBER_FORMAT.format(coverage.indexedSources)} indexierten Quellen.`
+          : detail?.concept.description || selectedNode.description || "Für diesen Begriff liegt noch keine Kurzdefinition vor."}</p>
+
+        {!isSystemNode && (detail?.concept.aliases.length || selectedNode.aliases.length) ? (
+          <div className="keyword-list" aria-label="Aliase">
+            {(detail?.concept.aliases ?? selectedNode.aliases).slice(0, 6).map((alias) => <span key={alias}>{alias}</span>)}
           </div>
         ) : null}
-        <div className="context-stats">
-          <span><b>{selectedNode.group}</b> Bereich</span>
-          <span><b>{String(selectedConnections).padStart(2, "0")}</b> Verbindungen</span>
-        </div>
-        <button
-          className="text-action"
-          disabled={!selectedNode.url}
-          onClick={() => selectedNode.url && window.open(selectedNode.url, "_blank", "noopener,noreferrer")}
-        >
-          {selectedNode.url ? "IN NOTION ÖFFNEN" : "LOKALE SYSTEMANSICHT"} <span>↗</span>
-        </button>
+
+        {!isSystemNode ? (
+          <div className="context-stats">
+            <span><b>{selectedNode.category}</b> Kategorie</span>
+            <span><b>{String(detail?.concept.sourceCount ?? selectedNode.sourceCount).padStart(2, "0")}</b> Quellen</span>
+            <span><b>{String(detail?.concept.occurrenceCount ?? selectedNode.occurrenceCount).padStart(2, "0")}</b> Fundstellen</span>
+          </div>
+        ) : null}
+
+        {relations.length ? (
+          <section className="concept-relations" aria-label="Wichtigste Beziehungen">
+            <span className="eyebrow">BEZIEHUNGEN</span>
+            <ul>
+              {relations.map((relation) => (
+                <li key={`${relation.source}-${relation.target}-${relation.type}`}>
+                  <strong>{relation.label}</strong>
+                  <small>{relation.reason}{relation.evidenceCount ? ` · ${relation.evidenceCount} Belege` : ""}</small>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {detailLoading && !detail ? <p className="concept-loading">Fundstellen werden geladen …</p> : null}
+
+        {occurrenceGroups.length ? (
+          <section className="concept-occurrences" aria-label="Fundstellen">
+            <span className="eyebrow">FUNDSTELLEN</span>
+            {occurrenceGroups.map(([rootTitle, occurrences]) => (
+              <article key={rootTitle}>
+                <h3>{rootTitle} <b>{occurrences.length}</b></h3>
+                <ul>
+                  {occurrences.slice(0, 8).map((occurrence) => (
+                    <li key={`${occurrence.sourceId}-${occurrence.headingPath}-${occurrence.snippet.slice(0, 24)}`}>
+                      <strong>{occurrence.sourceTitle}</strong>
+                      {occurrence.headingPath ? <small>{occurrence.headingPath}</small> : null}
+                      <p>{occurrence.snippet}</p>
+                      {occurrence.notionUrl ? (
+                        <a href={occurrence.notionUrl} target="_blank" rel="noreferrer">
+                          {occurrence.blockId ? "ZUM BLOCK ↗" : "IN NOTION ÖFFNEN ↗"}
+                        </a>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </section>
+        ) : null}
+
+        {!isSystemNode && !occurrenceGroups.length && !detailLoading && selectedNode.notionUrl ? (
+          <button
+            className="text-action"
+            onClick={() => window.open(selectedNode.notionUrl, "_blank", "noopener,noreferrer")}
+          >
+            IN NOTION ÖFFNEN <span>↗</span>
+          </button>
+        ) : null}
       </aside>
     </>
   );
