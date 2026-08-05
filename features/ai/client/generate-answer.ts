@@ -1,8 +1,8 @@
-/** Client-side bridge between local retrieval and the server-only Ollama endpoint. */
+/** Client-side bridge between indexed chunk retrieval and the local Ollama endpoint. */
 import type { ConversationTurn, GeneratedAnswer, ModelContext } from "../types";
 import type { KnowledgeAnswer } from "@/features/knowledge/answer";
 import { selectRelevantPassages } from "@/features/knowledge/search";
-import type { KnowledgeNode } from "@/features/knowledge/types";
+import type { RetrievedChunk } from "@/features/knowledge/types";
 
 type ErrorPayload = { error?: string };
 
@@ -18,8 +18,8 @@ export function mergeGeneratedAnswer(
     summary: generated.answer,
     evidence: [],
     caveat: generated.grounded
-      ? "Lokal mit Ollama formuliert – ausschließlich aus den unten markierten Notion-Quellen."
-      : "Das lokale Modell konnte aus den gefundenen Notion-Inhalten keine ausreichend belegte Antwort ableiten.",
+      ? "Lokal mit Ollama formuliert – ausschließlich aus den unten markierten Notion-Abschnitten."
+      : "Das lokale Modell konnte aus den gefundenen Abschnitten keine ausreichend belegte Antwort ableiten.",
     generation: {
       provider: generated.provider,
       model: generated.model,
@@ -33,23 +33,22 @@ export function mergeGeneratedAnswer(
 
 export function buildModelContexts(
   base: KnowledgeAnswer,
-  nodes: KnowledgeNode[],
+  chunks: RetrievedChunk[],
   history: ConversationTurn[] = [],
 ) {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const chunkById = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]));
   const contexts: ModelContext[] = [];
   const sourcePositions: number[] = [];
   const previousQueries = history.map((turn) => turn.question);
+
   base.sources.forEach((source, sourceIndex) => {
-    const node = nodesById.get(source.nodeId);
-    const content = node?.content?.trim() ?? "";
-    const normalizedContent = content.replace(/\s+/g, " ");
-    if (normalizedContent.length < 18
-      || normalizedContent.toLocaleLowerCase("de-DE") === source.label.toLocaleLowerCase("de-DE")) return;
+    const chunk = chunkById.get(source.chunkId);
+    const content = chunk?.text.replace(/\s+/gu, " ").trim() ?? "";
+    if (content.length < 18) return;
     contexts.push({
-      nodeId: source.nodeId,
-      label: source.label,
-      group: source.group,
+      chunkId: source.chunkId,
+      sourceTitle: source.sourceTitle,
+      headingPath: source.headingPath,
       content: selectRelevantPassages(content, base.query, previousQueries),
       retrievalScore: source.score,
       matchedTerms: source.matchedTerms,
@@ -71,11 +70,11 @@ export function remapCitations(generated: GeneratedAnswer, sourcePositions: numb
 
 export async function generateKnowledgeAnswer(
   base: KnowledgeAnswer,
-  nodes: KnowledgeNode[],
+  chunks: RetrievedChunk[],
   history: ConversationTurn[] = [],
   signal?: AbortSignal,
 ): Promise<KnowledgeAnswer> {
-  const { contexts, sourcePositions } = buildModelContexts(base, nodes, history);
+  const { contexts, sourcePositions } = buildModelContexts(base, chunks, history);
   if (!contexts.length) return base;
 
   const response = await fetch("/api/ai/answer", {

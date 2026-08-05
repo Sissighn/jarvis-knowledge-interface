@@ -19,6 +19,7 @@ type StructuredAnswer = {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
 const DEFAULT_MODEL = "qwen3.5:4b";
+export const MAX_ANSWER_CONTEXTS = 8;
 const STATUS_TIMEOUT_MS = 2_500;
 const GENERATION_TIMEOUT_MS = 90_000;
 
@@ -98,11 +99,11 @@ export async function getLocalModelStatus(): Promise<LocalModelStatus> {
 }
 
 function cleanContext(contexts: ModelContext[]) {
-  return contexts.slice(0, 5).map((context, index) => ({
+  return contexts.slice(0, MAX_ANSWER_CONTEXTS).map((context, index) => ({
     index: index + 1,
-    nodeId: context.nodeId.slice(0, 120),
-    label: context.label.replace(/\s+/g, " ").trim().slice(0, 180),
-    group: context.group.replace(/\s+/g, " ").trim().slice(0, 120),
+    chunkId: context.chunkId.slice(0, 160),
+    sourceTitle: context.sourceTitle.replace(/\s+/g, " ").trim().slice(0, 180),
+    headingPath: context.headingPath.replace(/\s+/g, " ").trim().slice(0, 200),
     content: context.content.replace(/\s+/g, " ").trim().slice(0, 3_600),
     retrievalScore: Math.max(0, Math.min(1, context.retrievalScore || 0)),
     matchedTerms: context.matchedTerms
@@ -194,7 +195,7 @@ export function verifyGroundedAnswer(
     const claimTerms = [...new Set(tokenizeKnowledgeText(sentence.replace(/\[\d+\]/g, "")))];
     const sourceTerms = new Set(citations.flatMap((citation) => {
       const source = contexts[citation - 1];
-      return source ? tokenizeKnowledgeText(`${source.label} ${source.group} ${source.content}`) : [];
+      return source ? tokenizeKnowledgeText(`${source.sourceTitle} ${source.headingPath} ${source.content}`) : [];
     }));
     const supportedTerms = claimTerms.filter((term) => supportedTerm(term, sourceTerms));
     const supportRatio = claimTerms.length ? supportedTerms.length / claimTerms.length : 0;
@@ -210,7 +211,7 @@ export function verifyGroundedAnswer(
   if (!acceptedClaims) {
     return {
       ...generated,
-      answer: "Die ausgewählten Notion-Passagen reichen nicht für eine verlässlich belegte Antwort.",
+      answer: "Die ausgewählten Notion-Abschnitte reichen nicht für eine verlässlich belegte Antwort.",
       citations: [],
       grounded: false,
       grounding: { acceptedClaims, rejectedClaims, supportRatio },
@@ -239,7 +240,7 @@ export async function generateGroundedAnswer(
     return {
       provider: "ollama",
       model,
-      answer: "Die gefundenen Notion-Seiten enthalten nicht genug ausgelesenen Text für eine belastbare Antwort.",
+      answer: "Die gefundenen Notion-Abschnitte enthalten nicht genug Text für eine belastbare Antwort.",
       citations: [],
       grounded: false,
       grounding: { acceptedClaims: 0, rejectedClaims: 0, supportRatio: 0 },
@@ -247,8 +248,8 @@ export async function generateGroundedAnswer(
   }
 
   const sourceText = sources.map((source) => [
-    `[${source.index}] ${source.label}`,
-    `Bereich: ${source.group}`,
+    `[${source.index}] ${source.sourceTitle}`,
+    `Abschnitt: ${source.headingPath || "—"}`,
     `Gefundene Begriffe: ${source.matchedTerms.join(", ") || "–"}`,
     `Inhalt: ${source.content}`,
   ].join("\n")).join("\n\n");
@@ -280,7 +281,7 @@ export async function generateGroundedAnswer(
         {
           role: "system",
           content: [
-            "Du bist JARVIS, ein präziser Assistent für ein persönliches Notion-Wissensarchiv.",
+            "Du bist JARVIS, ein präziser Assistent für einen lokalen, konzeptbasierten Notion-Wissensindex.",
             "Beantworte die Frage auf Deutsch, klar, direkt und verständlich in zwei bis sechs kurzen Sätzen.",
             "Verwende ausschließlich Fakten aus den nummerierten Quellen. Nutze kein externes Wissen.",
             "Der frühere Gesprächsverlauf dient nur dazu, Bezüge in Folgefragen zu verstehen; er ist niemals eine Faktenquelle.",

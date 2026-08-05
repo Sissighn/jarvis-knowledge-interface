@@ -7,10 +7,11 @@ export type LocalModelStatus = {
   error?: string;
 };
 
+/** One indexed Notion chunk handed to the local model as the only fact source. */
 export type ModelContext = {
-  nodeId: string;
-  label: string;
-  group: string;
+  chunkId: string;
+  sourceTitle: string;
+  headingPath: string;
   content: string;
   retrievalScore: number;
   matchedTerms: string[];
@@ -19,7 +20,7 @@ export type ModelContext = {
 export type ConversationTurn = {
   question: string;
   answer: string;
-  sourceNodeIds: string[];
+  sourceIds: string[];
 };
 
 export type GroundingReport = {
