@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import type { KnowledgeAnswer } from "@/features/knowledge/answer";
-import type { CoreState, KnowledgeNode } from "../types";
+import type { CoreState } from "../types";
 import { KnowledgeAnswerPanel } from "./KnowledgeAnswerPanel";
 
 type CommandCenterProps = {
@@ -10,14 +10,11 @@ type CommandCenterProps = {
   speechSupported: boolean;
   speechError: string | null;
   answer: KnowledgeAnswer | null;
-  nodes: KnowledgeNode[];
-  selectedNodeId: string;
   onQueryChange(query: string): void;
   onSubmit(event: FormEvent): void;
   onToggleListening(): void;
   onClearSpeechError(): void;
   onCloseAnswer(): void;
-  onSelectResult(node: KnowledgeNode): void;
   onRunPrompt(prompt: string): void;
 };
 
@@ -28,27 +25,17 @@ export function CommandCenter({
   speechSupported,
   speechError,
   answer,
-  nodes,
-  selectedNodeId,
   onQueryChange,
   onSubmit,
   onToggleListening,
   onClearSpeechError,
   onCloseAnswer,
-  onSelectResult,
   onRunPrompt,
 }: CommandCenterProps) {
   return (
     <section className="command-area">
       {answer && (
-        <KnowledgeAnswerPanel
-          answer={answer}
-          connected={connected}
-          nodes={nodes}
-          selectedNodeId={selectedNodeId}
-          onClose={onCloseAnswer}
-          onSelectNode={onSelectResult}
-        />
+        <KnowledgeAnswerPanel answer={answer} connected={connected} onClose={onCloseAnswer} />
       )}
       {speechError && <div className="speech-error" role="status">{speechError}<button onClick={onClearSpeechError} aria-label="Hinweis schließen">×</button></div>}
       {(state === "thinking" || state === "transcribing") && (
@@ -89,9 +76,9 @@ export function CommandCenter({
         </button>
       </form>
       <div className="quick-prompts">
-        <button type="button" onClick={() => onRunPrompt("Was verbindet meine aktuellen Projekte?")}>PROJEKTE VERBINDEN</button>
+        <button type="button" onClick={() => onRunPrompt("Welche zentralen Konzepte gibt es in meinem ausgewählten Wissen?")}>KONZEPTE FINDEN</button>
+        <button type="button" onClick={() => onRunPrompt("Welche wichtigen Zusammenhänge gibt es zwischen meinen Notizen?")}>ZUSAMMENHÄNGE</button>
         <button type="button" onClick={() => onRunPrompt("Was weiß ich über meine nächste Prüfung?")}>PRÜFUNGSWISSEN</button>
-        <button type="button" onClick={() => onRunPrompt("Zeig mir meine wichtigsten Ideen")}>IDEEN FINDEN</button>
       </div>
     </section>
   );
