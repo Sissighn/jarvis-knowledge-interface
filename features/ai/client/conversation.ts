@@ -7,7 +7,7 @@ const MAX_CONVERSATION_TURNS = 4;
 export function retrievalContextFromHistory(history: ConversationTurn[]): KnowledgeRetrievalContext {
   return {
     previousQueries: history.slice(-MAX_CONVERSATION_TURNS).map((turn) => turn.question),
-    preferredNodeIds: [...new Set(history.slice(-2).flatMap((turn) => turn.sourceNodeIds))],
+    preferredSourceIds: [...new Set(history.slice(-2).flatMap((turn) => turn.sourceIds))],
   };
 }
 
@@ -18,13 +18,13 @@ export function rememberConversationTurn(
   if (!answer.sources.length) return history;
   const citedSources = answer.generation?.citations.length
     ? answer.generation.citations
-      .map((citation) => answer.sources[citation - 1]?.nodeId)
-      .filter((nodeId): nodeId is string => Boolean(nodeId))
-    : answer.sources.slice(0, 3).map((source) => source.nodeId);
+      .map((citation) => answer.sources[citation - 1]?.sourceId)
+      .filter((sourceId): sourceId is string => Boolean(sourceId))
+    : answer.sources.slice(0, 3).map((source) => source.sourceId);
   const turn: ConversationTurn = {
     question: answer.query.slice(0, 500),
     answer: answer.summary.replace(/\s+/g, " ").trim().slice(0, 1_200),
-    sourceNodeIds: [...new Set(citedSources)].slice(0, 5),
+    sourceIds: [...new Set(citedSources)].slice(0, 5),
   };
   return [...history, turn].slice(-MAX_CONVERSATION_TURNS);
 }
