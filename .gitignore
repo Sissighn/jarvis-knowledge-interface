@@ -56,6 +56,9 @@ next-env.d.ts
 /src-tauri/icons/icon.png
 /src-tauri/icons/ios/
 
+# local knowledge index (Notion content never leaves this Mac)
+/.jarvis-dev/
+
 # local speech models
 /models/whisper/*.bin
 /public/fonts/

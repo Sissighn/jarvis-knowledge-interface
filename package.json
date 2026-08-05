@@ -22,6 +22,7 @@
     "dev": "node scripts/dev.mjs",
     "prepare:fonts": "node scripts/prepare-fonts.mjs",
     "dev:web": "npm run prepare:fonts && WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
+    "dev:indexer": "tsx desktop/indexer/index.ts",
     "dev:speech": "node scripts/start-whisper-server.mjs",
     "desktop:web": "JARVIS_WEB_PORT=4317 node scripts/dev.mjs",
     "desktop:setup": "node scripts/setup-desktop.mjs",
