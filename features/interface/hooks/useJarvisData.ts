@@ -1,18 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { sampleGraphEdges, sampleKnowledgeNodes } from "../sample-data";
 import type { LocalModelStatus } from "@/features/ai/types";
 import type { VocabularySaveResult } from "@/features/glossary/types";
 import { notifyBriefingReady } from "@/features/desktop/notifications";
-import type {
-  DailyBriefing,
-  GraphPayload,
-  KnowledgeEdge,
-  KnowledgeNode,
-  NotionStatus,
-  WeatherPayload,
-} from "../types";
+import type { DailyBriefing, WeatherPayload } from "../types";
 
 const BRIEFING_CACHE_KEY = "jarvis-briefing-cache-v1";
 const BRIEFING_HIDDEN_KEY = "jarvis-briefing-hidden-v1";
@@ -38,13 +30,6 @@ function currentBerlinDateKey() {
 }
 
 export function useJarvisData() {
-  const [nodes, setNodes] = useState<KnowledgeNode[]>(sampleKnowledgeNodes);
-  const [edges, setEdges] = useState<KnowledgeEdge[]>(sampleGraphEdges);
-  const [selectedNode, setSelectedNode] = useState<KnowledgeNode>(sampleKnowledgeNodes[0]);
-  const [notionStatus, setNotionStatus] = useState<NotionStatus>({ configured: false, connected: false });
-  const [graphMeta, setGraphMeta] = useState<Omit<GraphPayload, "nodes" | "edges"> | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [notionError, setNotionError] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<DailyBriefing | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState<string | null>(null);
@@ -80,41 +65,6 @@ export function useJarvisData() {
     }
   }, []);
 
-  const loadNotion = useCallback(async (force = false) => {
-    setSyncing(true);
-    setNotionError(null);
-    try {
-      const statusResponse = await fetch("/api/notion/status", { cache: "no-store" });
-      const status = await statusResponse.json() as NotionStatus;
-      setNotionStatus(status);
-
-      if (!statusResponse.ok || !status.connected) {
-        if (status.error) setNotionError(status.error);
-        return;
-      }
-
-      const graphResponse = await fetch(`/api/notion/graph${force ? "?force=1" : ""}`, { cache: "no-store" });
-      const graph = await graphResponse.json() as GraphPayload & { error?: string };
-      if (!graphResponse.ok) throw new Error(graph.error || "Der Notion-Graph konnte nicht geladen werden.");
-
-      setNodes(graph.nodes);
-      setEdges(graph.edges);
-      setGraphMeta({
-        syncedAt: graph.syncedAt,
-        pageCount: graph.pageCount,
-        dataSourceCount: graph.dataSourceCount,
-        contentScannedCount: graph.contentScannedCount,
-        similarityEdgeCount: graph.similarityEdgeCount,
-        clusterCount: graph.clusterCount,
-      });
-      setSelectedNode(graph.nodes.find((node) => node.kind === "system") ?? graph.nodes[0]);
-    } catch (error) {
-      setNotionError(error instanceof Error ? error.message : "Notion ist momentan nicht erreichbar.");
-    } finally {
-      setSyncing(false);
-    }
-  }, []);
-
   const loadBriefing = useCallback(async (force = false) => {
     setBriefingLoading(true);
     setBriefingError(null);
@@ -146,11 +96,6 @@ export function useJarvisData() {
       setWeatherLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    const startupCheck = window.setTimeout(() => void loadNotion(), 0);
-    return () => window.clearTimeout(startupCheck);
-  }, [loadNotion]);
 
   useEffect(() => {
     const startupWeather = window.setTimeout(() => void loadWeather(), 0);
@@ -257,15 +202,6 @@ export function useJarvisData() {
   }, [briefingDate, savingVocabularyId]);
 
   return {
-    nodes,
-    edges,
-    selectedNode,
-    setSelectedNode,
-    notionStatus,
-    graphMeta,
-    syncing,
-    notionError,
-    loadNotion,
     briefing,
     briefingLoading,
     briefingError,
