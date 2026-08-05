@@ -4,9 +4,9 @@ import { parseStructuredAnswer, verifyGroundedAnswer } from "../../features/ai/s
 import type { ModelContext } from "../../features/ai/types";
 
 const contexts: ModelContext[] = [{
-  nodeId: "rl",
-  label: "Reinforcement Learning",
-  group: "Machine Learning",
+  chunkId: "rl:0",
+  sourceTitle: "AI Methods",
+  headingPath: "Reinforcement Learning",
   content: "Ein Agent lernt durch Interaktion mit einer Umgebung und erhält Feedback in Form von Belohnungen.",
   retrievalScore: 0.9,
   matchedTerms: ["reinforcement", "learning"],
