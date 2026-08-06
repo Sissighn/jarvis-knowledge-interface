@@ -298,7 +298,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     target: "local",
     path: "/calendar/create-event",
     label: "Termin eintragen",
-    description: "Verwenden nur zum Anlegen eines neuen Google-Kalender-Termins. Titel, Datum und Uhrzeit müssen bekannt sein; bei einer fehlenden Angabe zuerst nachfragen. Es werden keine Gäste eingeladen und keine Einladungen verschickt.",
+    description: "Verwenden nur zum Anlegen eines neuen Google-Kalender-Termins. Nur aufrufen, wenn Titel, Datum und eine ausdrücklich genannte Uhrzeit feststehen. Ohne Uhrzeit kein Werkzeug aufrufen, sondern nachfragen; niemals eine Uhrzeit schätzen. Es werden keine Gäste eingeladen und keine Einladungen verschickt.",
     parameters: {
       type: "object",
       required: ["title", "start"],
@@ -306,9 +306,9 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
         title: { type: "string", description: "Worum es bei dem Termin geht, zum Beispiel Zahnarzt." },
         start: {
           type: "string",
-          description: "Beginn als lokale Zeit im Format JJJJ-MM-TTTHH:MM, zum Beispiel 2026-03-14T15:00.",
+          description: "Beginn als lokale Zeit im Format JJJJ-MM-TTTHH:MM. Nur eine ausdrücklich genannte oder zuvor bestätigte Uhrzeit verwenden; niemals schätzen.",
         },
-        duration: { type: "integer", description: "Dauer in Minuten. Standard 60." },
+        duration: { type: "integer", description: "Nur übergeben, wenn die Dauer ausdrücklich genannt wurde. Sonst weglassen; Standard ist 60 Minuten." },
         location: { type: "string", description: "Optionaler Ort des Termins." },
       },
     },
