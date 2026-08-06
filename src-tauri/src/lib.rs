@@ -20,7 +20,14 @@ use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
 };
 
+mod voice;
+
 const SERVER_PORT: u16 = 4317;
+const SPEECH_PORT: u16 = 8178;
+/// Apple silicon first, Intel second; both are prepended to whatever the app inherited.
+const HOMEBREW_BIN_PATHS: &str = "/opt/homebrew/bin:/usr/local/bin";
+const SPEECH_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+const SPEECH_STARTUP_GRACE: Duration = Duration::from_secs(30);
 const GLOBAL_SHORTCUT: &str = "CommandOrControl+Shift+J";
 
 #[derive(Default)]
@@ -107,14 +114,48 @@ fn application_data_directory(app: &tauri::App) -> tauri::Result<PathBuf> {
     Ok(directory)
 }
 
-fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
-    if TcpStream::connect_timeout(
-        &SocketAddr::from(([127, 0, 0, 1], 8178)),
-        Duration::from_millis(150),
+fn speech_service_is_reachable() -> bool {
+    TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], SPEECH_PORT)),
+        Duration::from_millis(200),
     )
     .is_ok()
-    {
-        log::info!("Using the existing local Whisper service on port 8178");
+}
+
+/**
+ * Keeps the transcription service alive for the whole session. It used to be started once
+ * at setup, so any crash or restart of the runtime left voice input dead until the app was
+ * restarted by hand.
+ */
+fn supervise_speech_service(app: AppHandle, app_data: PathBuf) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(SPEECH_CHECK_INTERVAL);
+            if speech_service_is_reachable() {
+                continue;
+            }
+            let Some(processes) = app.try_state::<RuntimeProcesses>() else {
+                continue;
+            };
+            let Ok(mut slot) = processes.speech.lock() else {
+                continue;
+            };
+            // Reap the previous child so a dead process cannot linger as a zombie.
+            if let Some(child) = slot.as_mut() {
+                let _ = child.try_wait();
+            }
+            log::warn!("The local speech service is not reachable, starting it again");
+            *slot = spawn_speech_service(&app_data);
+            drop(slot);
+            // Loading the model takes a moment before the port accepts connections.
+            thread::sleep(SPEECH_STARTUP_GRACE);
+        }
+    });
+}
+
+fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
+    if speech_service_is_reachable() {
+        log::info!("Using the existing local Whisper service on port {SPEECH_PORT}");
         return None;
     }
 
@@ -133,7 +174,38 @@ fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
         return None;
     }
 
+    // whisper.cpp writes its `--convert` scratch file relative to the working directory.
+    // A bundled app inherits `/` from LaunchServices, where that write always fails.
+    let scratch = app_data.join("speech-scratch");
+    if let Err(error) = fs::create_dir_all(&scratch) {
+        log::warn!("Could not prepare the speech scratch directory: {error}");
+        return None;
+    }
+
+    // `--convert` shells out to ffmpeg, and LaunchServices hands a bundled app the bare
+    // `/usr/bin:/bin:/usr/sbin:/sbin`. Without the Homebrew prefix whisper-server exits
+    // immediately, which used to look like a service that simply never came up.
+    let search_path = match std::env::var("PATH") {
+        Ok(inherited) => format!("{HOMEBREW_BIN_PATHS}:{inherited}"),
+        Err(_) => HOMEBREW_BIN_PATHS.to_string(),
+    };
+
+    // A child that dies into `/dev/null` is invisible: the missing ffmpeg looked exactly like a
+    // service that never came up. A file cannot fill up a pipe, so this is safe to leave open.
+    let (output, errors) = match fs::File::create(scratch.join("whisper-server.log")) {
+        Ok(file) => match (file.try_clone(), file) {
+            (Ok(first), second) => (Stdio::from(first), Stdio::from(second)),
+            _ => (Stdio::null(), Stdio::null()),
+        },
+        Err(error) => {
+            log::warn!("Could not open the speech log: {error}");
+            (Stdio::null(), Stdio::null())
+        }
+    };
+
     match SystemCommand::new(executable)
+    .current_dir(&scratch)
+    .env("PATH", search_path)
     .args([
       "--model",
       model.to_string_lossy().as_ref(),
@@ -150,8 +222,8 @@ fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
       "JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning",
     ])
     .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stdout(output)
+    .stderr(errors)
     .spawn()
   {
     Ok(child) => Some(child),
@@ -257,6 +329,12 @@ pub fn run() {
             None,
         ))
         .plugin(shortcut_plugin)
+        .invoke_handler(tauri::generate_handler![
+            voice::start_voice_capture,
+            voice::stop_voice_capture,
+            voice::cancel_voice_capture
+        ])
+        .manage(voice::VoiceCapture::default())
         .setup(|app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -285,6 +363,7 @@ pub fn run() {
                     .lock()
                     .expect("speech process lock poisoned") = spawn_speech_service(&app_data);
                 reveal_when_server_is_ready(app.handle().clone());
+                supervise_speech_service(app.handle().clone(), app_data.clone());
             }
             app.manage(processes);
             Ok(())

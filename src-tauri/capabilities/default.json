@@ -8,6 +8,9 @@
   },
   "permissions": [
     "core:default",
-    "notification:default"
+    "notification:default",
+    "allow-start-voice-capture",
+    "allow-stop-voice-capture",
+    "allow-cancel-voice-capture"
   ]
 }
