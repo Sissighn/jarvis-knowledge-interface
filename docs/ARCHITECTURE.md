@@ -110,19 +110,47 @@ The daily vocabulary is deterministic, local, and independent of the news feeds 
 ## Speech flow
 
 ```text
-microphone ──► MediaRecorder session ──► user presses Stop
-                                               │
-                                               ▼
-                                    /api/speech/transcribe
-                                               │
-                                               ▼
-                              local whisper.cpp + large-v3-turbo
-                                               │
-                                               ▼
-                            editable command text ──► explicit Send
+browser:  microphone ──► MediaRecorder ──────────────┐
+                                                     │  user presses Stop
+desktop:  microphone ──► Rust capture ──► WAV ───────┤
+                         (16 kHz mono)               ▼
+                                          /api/speech/transcribe
+                                                     │
+                                                     ▼
+                                    local whisper.cpp + large-v3-turbo
+                                                     │
+                                                     ▼
+                                              voice assistant turn
 ```
 
-Recording never stops because of silence. Audio is held in browser memory for the active session, sent only to the loopback transcription service, and discarded after the transcript returns. Transcription and question submission are separate user actions.
+Two capture paths exist because WKWebView only exposes `navigator.mediaDevices` in a secure context, and the packaged window is served over loopback HTTP. The app therefore captures natively and produces the WAV file itself; both paths end in the same transcription route, so error handling and limits stay in one place. Tauri classifies the loopback window as a remote origin, so the capture commands are reachable only through an explicit app permission in `src-tauri/permissions/` referenced by the window capability.
+
+Recording never stops because of silence. Audio is held in browser memory for the active session, sent only to the loopback transcription service, and discarded after the transcript returns. The transcript reaches the voice assistant; typed knowledge questions stay a separate, explicit action.
+
+## Assistant flow
+
+```text
+transcript ──► /api/assistant/chat ──► Ollama with the tool catalogue
+                       ▲                        │
+                       │                        ▼
+                       │                 tool call selected
+                       │                        │
+              tool result message               ├──► dashboard tool ──► /api/weather, /api/briefing
+                       │                        │
+                       │                        └──► local tool ──► /api/local/* ──► macOS, Spotify,
+                       │                                  │                          Google, Chrome
+                       │                                  │
+                       └──────────────────────────────────┘
+                                                │
+                            no further tool call ▼
+                                        spoken answer via macOS voices
+```
+
+The loop runs in the browser, like the knowledge flow, because only the browser can reach every boundary: the worker routes for model and dashboard data, and the local action layer for this Mac. It ends after at most three tool rounds and never ends silently; without a final sentence from the model, the last tool result becomes the spoken answer.
+
+Two gates protect irreversible actions and the one action that writes into a connected account. The loop stops before a tool that declares a confirmation question and returns it for the user to answer, and the action layer rejects the same call again unless it carries `confirmed: true`. The tool catalogue in `features/assistant/tools.ts` is the only thing the model can choose from; unknown names never reach an executor.
+
+A third boundary sits below the catalogue: capability, not wording, decides what is possible. Archiving and trashing mail need `gmail.modify`, the narrowest scope Google offers for either, and that scope would also permit sending. The boundary is therefore drawn one level lower: every Gmail request passes `gmailCall`, which matches the path against five allowed endpoints before a request exists. `messages.send`, drafts, and permanent deletion are unreachable by construction rather than by instruction, and the login still refuses any scope that exists only to send.
 
 ## Runtime boundaries
 
@@ -132,6 +160,7 @@ Recording never stops because of silence. Audio is held in browser memory for th
 | Canvas renderers | one shared visual language in `features/interface/renderers/neural-style.ts`; the core sphere and the knowledge map compose the same additive ink, filaments, trails, links, points, and halo |
 | Next.js API routes | input validation, Ollama, Whisper, and explicit Notion-write boundaries, indexer proxying in development, error mapping, cache controls |
 | Local indexer | Notion crawl, SQLite index, concept extraction, embeddings, relation building, hybrid retrieval |
+| Local action layer | allowlisted macOS commands, Spotify and Google PKCE logins, calendar and read-only mail access, browser searches, loopback origin check, and the second confirmation gate for irreversible and writing actions |
 | Feature server modules | local language and speech models, Notion connection, feeds, and weather access |
 | Pure feature modules | chunking, concept normalization, relation math, ranking, layout, and domain types |
 | Worker | vinext request handling and image optimization |
@@ -148,6 +177,7 @@ JARVIS.app
    │        ├──► packaged jarvis-server sidecar ──► http://127.0.0.1:4317
    │        │                                         │
    │        │                                         ├──► /api/knowledge/* local index
+   │        │                                         ├──► /api/local/* macOS, Spotify, Google actions
    │        │                                         ▼
    │        │                                shared React + API application
    │        │
@@ -163,6 +193,7 @@ The Tauri process owns every child it starts and terminates those children durin
 ## Testing strategy
 
 - unit tests cover chunking, concept and navigation-title filtering, alias merging, relation evidence, edge limits, SQLite migrations and rollback, a full stubbed sync of a course workspace, Notion crawling, hybrid retrieval, generated-answer grounding, session conversation context, briefing freshness, daily vocabulary rotation, and map viewport, interaction, and rendering behaviour
+- assistant tests cover the tool catalogue and its argument coercion, the tool-calling loop against a scripted model, both confirmation paths, and the action layer's origin check, confirmation gate, allowlist, and home-directory boundary
 - TypeScript strict mode validates contracts across feature boundaries
 - ESLint covers React, Next.js, and TypeScript conventions
 - integration tests run against the built worker and verify SSR plus the Notion credential boundary
