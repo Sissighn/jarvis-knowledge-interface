@@ -2,6 +2,7 @@
 @import "../features/interface/styles/knowledge-answer.css";
 @import "../features/interface/styles/setup-dialog.css";
 @import "../features/interface/styles/tech-vocabulary.css";
+@import "../features/interface/styles/voice-assistant.css";
 @import "../features/interface/styles/responsive.css";
 
 @font-face {
