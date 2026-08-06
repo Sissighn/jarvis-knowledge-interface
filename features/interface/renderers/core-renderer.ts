@@ -48,6 +48,7 @@ type CoreFrameOptions = {
   height: number;
   time: number;
   state: CoreState;
+  speechActivity: number;
   coreBounds: { current: CoreBounds };
   rotation: CoreRotation;
   pointer: CorePointer;
@@ -63,6 +64,7 @@ export function renderCoreFrame({
   height,
   time,
   state,
+  speechActivity,
   coreBounds,
   rotation,
   pointer,
@@ -74,11 +76,17 @@ export function renderCoreFrame({
   const cx = width / 2;
   const cy = height / 2 - Math.min(12, height * 0.02);
   const baseRadius = Math.min(width, height) * (width < 720 ? 0.34 : 0.37);
+  const speechLevel = state === "speaking" ? Math.max(0, Math.min(1, speechActivity)) : 0;
+  const speechMotion = speechLevel * speechLevel * (3 - 2 * speechLevel);
   const statePulse = state === "listening" ? 1.07 : state === "thinking" ? 0.95 : 1;
-  const pulse = statePulse + Math.sin(time * (state === "thinking" ? 3.2 : 1.2)) * 0.018;
+  const pulse = statePulse
+    + Math.sin(time * (state === "thinking" ? 3.2 : 1.2)) * 0.018
+    + speechMotion * 0.007;
   coreBounds.current = { x: cx, y: cy, radius: baseRadius * 1.02 * pulse };
   const projected: Array<{ x: number; y: number; z: number; a: number; bright: boolean; trail: Array<{ x: number; y: number }> }> = [];
-  const flowSpeed = state === "thinking" ? 1.7 : state === "listening" ? 1.25 : 1;
+  const flowSpeed = state === "thinking"
+    ? 1.7
+    : state === "listening" ? 1.25 : state === "speaking" ? 1 + speechMotion * 0.08 : 1;
     if (!rotation.dragging) {
     rotation.targetY += rotation.velocityY;
     rotation.targetX = Math.max(-0.88, Math.min(0.88, rotation.targetX + rotation.velocityX));
@@ -190,4 +198,3 @@ export function renderCoreFrame({
 
   return { hoverX, hoverY };
 }
-

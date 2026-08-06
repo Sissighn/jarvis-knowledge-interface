@@ -4,6 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type VoicePhase = "idle" | "recording" | "transcribing";
 
+/**
+ * The browser records through MediaRecorder. Inside the packaged app that path does not
+ * exist, because WKWebView withholds `navigator.mediaDevices` from the loopback origin, so
+ * the native Tauri capture takes over and returns a finished WAV file.
+ */
+type CaptureMode = "browser" | "native" | "unavailable";
+
 type VoiceRecorderOptions = {
   onTranscript(transcript: string): void;
   onPhaseChange(phase: VoicePhase): void;
@@ -11,12 +18,32 @@ type VoiceRecorderOptions = {
 
 type TranscriptPayload = { text?: string; error?: string };
 
+const UNSUPPORTED_MESSAGE = "Diese Ansicht kann nicht auf das Mikrofon zugreifen. "
+  + "Öffne JARVIS als App oder rufe die Oberfläche im Browser über localhost auf.";
+
+function isTauriDesktop() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function detectCaptureMode(): CaptureMode {
+  if (isTauriDesktop()) return "native";
+  const browserReady = typeof window.MediaRecorder !== "undefined"
+    && typeof navigator.mediaDevices !== "undefined";
+  return browserReady ? "browser" : "unavailable";
+}
+
+async function invokeTauri<T>(command: string): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command);
+}
+
 function preferredMimeType() {
   const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
 function fileExtension(mimeType: string) {
+  if (mimeType.includes("wav")) return "wav";
   return mimeType.includes("mp4") ? "m4a" : "webm";
 }
 
@@ -25,7 +52,7 @@ function stopTracks(stream: MediaStream | null) {
 }
 
 export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderOptions) {
-  const [supported, setSupported] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("unavailable");
   const [phase, setPhase] = useState<VoicePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -33,6 +60,8 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
   const chunksRef = useRef<Blob[]>([]);
   const requestControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  const phaseRef = useRef<VoicePhase>("idle");
+  const captureModeRef = useRef<CaptureMode>("unavailable");
   const callbacksRef = useRef({ onTranscript, onPhaseChange });
 
   useEffect(() => {
@@ -40,6 +69,7 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
   }, [onPhaseChange, onTranscript]);
 
   const updatePhase = useCallback((nextPhase: VoicePhase) => {
+    phaseRef.current = nextPhase;
     setPhase(nextPhase);
     callbacksRef.current.onPhaseChange(nextPhase);
   }, []);
@@ -47,7 +77,9 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
   useEffect(() => {
     mountedRef.current = true;
     const supportTimer = window.setTimeout(() => {
-      setSupported(typeof window.MediaRecorder !== "undefined" && typeof navigator.mediaDevices !== "undefined");
+      const mode = detectCaptureMode();
+      captureModeRef.current = mode;
+      setCaptureMode(mode);
     }, 0);
     return () => {
       mountedRef.current = false;
@@ -56,6 +88,10 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== "inactive") recorder.stop();
       stopTracks(streamRef.current);
+      // A native recording keeps running in Rust until it is told to stop.
+      if (captureModeRef.current === "native" && phaseRef.current === "recording") {
+        void invokeTauri("cancel_voice_capture").catch(() => undefined);
+      }
     };
   }, []);
 
@@ -87,12 +123,41 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
     }
   }, [updatePhase]);
 
-  const start = useCallback(async () => {
-    if (!supported) {
-      setError("Dieser Browser kann keine Audioaufnahme bereitstellen.");
-      return;
+  const startNative = useCallback(async () => {
+    try {
+      await invokeTauri("start_voice_capture");
+      if (!mountedRef.current) {
+        void invokeTauri("cancel_voice_capture").catch(() => undefined);
+        return;
+      }
+      updatePhase("recording");
+    } catch (captureError) {
+      setError(typeof captureError === "string"
+        ? captureError
+        : "Das Mikrofon konnte nicht gestartet werden. Erlaube JARVIS den Zugriff in den Systemeinstellungen unter Datenschutz und Sicherheit.");
+      updatePhase("idle");
     }
-    setError(null);
+  }, [updatePhase]);
+
+  const stopNative = useCallback(async () => {
+    try {
+      const audio = await invokeTauri<ArrayBuffer>("stop_voice_capture");
+      if (!mountedRef.current) return;
+      const blob = new Blob([audio], { type: "audio/wav" });
+      if (!blob.size) {
+        setError("Die Aufnahme war leer. Bitte versuche es erneut.");
+        updatePhase("idle");
+        return;
+      }
+      void transcribe(blob);
+    } catch (captureError) {
+      if (!mountedRef.current) return;
+      setError(typeof captureError === "string" ? captureError : "Die Aufnahme konnte nicht abgeschlossen werden.");
+      updatePhase("idle");
+    }
+  }, [transcribe, updatePhase]);
+
+  const startBrowser = useCallback(async () => {
     chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -140,18 +205,33 @@ export function useVoiceRecorder({ onTranscript, onPhaseChange }: VoiceRecorderO
         : "Das Mikrofon konnte nicht gestartet werden.");
       updatePhase("idle");
     }
-  }, [supported, transcribe, updatePhase]);
+  }, [transcribe, updatePhase]);
+
+  const start = useCallback(async () => {
+    if (captureMode === "unavailable") {
+      setError(UNSUPPORTED_MESSAGE);
+      return;
+    }
+    setError(null);
+    if (captureMode === "native") {
+      await startNative();
+      return;
+    }
+    await startBrowser();
+  }, [captureMode, startBrowser, startNative]);
 
   const toggle = useCallback(() => {
     if (phase === "recording") {
-      recorderRef.current?.stop();
+      if (captureMode === "native") void stopNative();
+      else recorderRef.current?.stop();
       return;
     }
     if (phase === "idle") void start();
-  }, [phase, start]);
+  }, [captureMode, phase, start, stopNative]);
 
   return {
-    supported,
+    supported: captureMode !== "unavailable",
+    captureMode,
     phase,
     error,
     toggle,
