@@ -1,4 +1,4 @@
-export type CoreState = "idle" | "listening" | "transcribing" | "thinking";
+export type CoreState = "idle" | "listening" | "transcribing" | "thinking" | "speaking";
 export type ViewMode = "core" | "map";
 
 export type {
