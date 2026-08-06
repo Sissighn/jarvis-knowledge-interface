@@ -39,7 +39,11 @@ JARVIS is designed to reduce information friction without creating another syste
 - explicit one-click saving of individual vocabulary terms to a configured Notion table
 - local story bookmarks, relevance feedback, and daily browser cache
 - current weather and four-day forecast from Open-Meteo
-- manual-stop audio recording and editable local Whisper transcription
+- manual-stop audio recording and local Whisper transcription
+- spoken assistant with local function calling for dashboard data, Spotify, Google Calendar, Gmail that can read, summarize, archive, and trash but never send, Chrome searches, and allowlisted macOS actions
+- spoken answers through the macOS system voices with configurable voice, speed, and volume, interruptible at any time
+- explicit confirmation before irreversible actions, enforced again in the local action layer
+- native microphone capture in the app, because the embedded WebView withholds browser recording on loopback
 - native Apple Silicon app bundle powered by Tauri 2
 - menu bar controls, launch at login, native notifications, and a global `⌘⇧J` shortcut
 - focused small-screen layout that prioritizes the core and knowledge map
@@ -54,6 +58,7 @@ app/                         Next.js routes and API boundaries
 config/                      build integration
 features/
   ai/                        local Ollama client, API bridge, and answer contracts
+  assistant/                 voice-assistant tool catalogue, tool-calling loop, and speech output
   briefing/                  news aggregation, ranking, and types
   glossary/                  curated daily vocabulary rotation and explicit Notion export
   interface/                 components, hooks, map viewport and force layout, shared Canvas renderers, and styles
@@ -65,6 +70,7 @@ tests/
   integration/               built-worker and security-boundary tests
 scripts/                     local development and speech-model setup
 desktop/
+  actions/                   allowlisted macOS commands, Spotify and Google OAuth, and the local action API
   indexer/                   local SQLite knowledge index, Notion crawl, and concept extraction
   server/                    packaged loopback server adapter
 src-tauri/                   native macOS shell, tray, shortcut, and app lifecycle
@@ -212,6 +218,10 @@ WHISPER_MODEL_PATH=models/whisper/ggml-large-v3-turbo-q5_0.bin
 WHISPER_LANGUAGE=de
 ```
 
+Recording works differently in the two runtimes, and the assistant panel shows which one is active. In the browser, `MediaRecorder` captures the audio. Inside the packaged app that path does not exist: WKWebView withholds `navigator.mediaDevices` from the loopback origin, because it only exposes microphone access in a secure context. The app therefore records natively in Rust, resamples to 16 kHz mono, and hands a finished WAV file to the same local transcription route. macOS asks once for microphone permission; the answer can be changed later under **System Settings → Privacy & Security → Microphone**.
+
+The service runs with `--convert`, so whisper.cpp normalises every upload through ffmpeg. That scratch file is written relative to the working directory, which is why the app starts the service inside `speech-scratch` in its application-support directory: a bundled app inherits `/` from LaunchServices, and a failed scratch write surfaces as `FFmpeg conversion failed.` for every recording.
+
 `WHISPER_PORT` controls the local service and must match the port in `WHISPER_BASE_URL`. The language defaults to German while retaining recognition of English technical terms through a domain-specific prompt. Set `WHISPER_LANGUAGE=auto` if the complete recording may use another primary language.
 
 Voice workflow:
@@ -219,10 +229,124 @@ Voice workflow:
 1. Press the microphone button to begin recording.
 2. Speak for as long as needed; silence does not submit or intentionally stop the session.
 3. Press **Stop** to end the recording and start local transcription.
-4. Review and edit the transcript in the command box.
-5. Press Enter or the send icon to submit it as a question.
+4. The transcript goes to the voice assistant, which answers out loud (see below).
 
-Audio is not submitted as a question automatically. If transcription fails, the error remains visible and no text is sent to the answer model.
+The text field next to the microphone remains the entry point for Notion knowledge questions. If transcription fails, the error remains visible and nothing is sent to a model.
+
+## Voice assistant
+
+The microphone drives a spoken assistant: Whisper transcribes, a local tool-calling model decides which of the allowlisted functions to run, and the answer is spoken back through the macOS system voices. Everything runs on this Mac and costs nothing per request.
+
+```text
+microphone → whisper.cpp → Ollama (tool calling) → dashboard data, Spotify, Google, macOS → spoken answer
+```
+
+### What it can do
+
+| Area | Functions |
+| --- | --- |
+| Dashboard | current temperature, rain forecast, the five most important tech news, words of the day, personal dashboard summary |
+| Spotify | search and play a track, artist, album, or playlist, pause, resume, next, previous, volume, name the current track |
+| Google Calendar | read the agenda for today, tomorrow, or the next seven days, and create a new appointment after confirmation |
+| Gmail | say how many unread mails are in the inbox, name sender and subject of the newest ones, search by term or by a single day, summarize one mail, archive mails, move mails to the trash — **never send** |
+| Google Chrome | search for a term in Chrome, open a web address in Chrome |
+| macOS | open an allowlisted program, open a file or folder inside your home directory, set or change the system volume, empty the trash after confirmation |
+
+Ask in plain German, for example *„Wie warm ist es gerade?“*, *„Spiel Bohemian Rhapsody auf Spotify“*, *„Was steht morgen in meinem Kalender?“*, *„Trag am Freitag um 15 Uhr Zahnarzt ein“*, *„Habe ich neue Mails?“*, *„Habe ich am 5. August Mails bekommen?“*, *„Was steht in der Mail von der Bank?“*, *„Archivier die Newsletter“*, *„Such auf Chrome nach dem neuen MacBook“* or *„Fass mir mein Dashboard zusammen“*.
+
+### Mail is never sent
+
+JARVIS can look into the mailbox and never into the outbox. Archiving and trashing need Google's `gmail.modify` scope — nothing narrower exists for either — and that scope would technically also permit sending. The boundary therefore does not rest on the scope alone:
+
+- **One door.** Every Gmail request in `desktop/actions/gmail.ts` goes through `gmailCall`, which checks the path against a list of five allowed endpoints before a request is built. `messages.send`, `drafts`, `untrash`, settings, and `DELETE` are unreachable; a wrong call throws instead of reaching Google.
+- **No such function exists.** The catalogue in `features/assistant/tools.ts` has no tool for writing, answering, or forwarding, and no tool may even be *named* after it — `tests/unit/assistant-tools.test.ts` fails if one appears.
+- **Nothing permanent.** Trashing is `messages.trash`, recoverable for 30 days. Permanent deletion needs full `mail.google.com` access, which the login refuses to request.
+- **Nothing silent.** Archiving and trashing stop the loop and ask first, naming exactly which mails are affected, and the action layer rejects the call again without `confirmed: true`. At most ten messages are touched by one command.
+
+Creating an appointment writes only into the calendar: events are created without attendees and with `sendUpdates=none`, so nobody receives an invitation.
+
+Summarizing a mail is the only place where text written by someone else enters the conversation. It is trimmed to 1500 characters, stripped of markup, and handed to the model as data; the system prompt forbids following instructions found in a tool result. The confirmation gate is what makes that safe in practice — a mail cannot talk you into clicking **JA, FORTFAHREN**.
+
+### Speech output
+
+Answers use the macOS system voices through the browser speech synthesis API, so no additional service or download is needed. Voice, speed, and volume are configurable in the assistant panel and stay in browser storage. Pressing the microphone while JARVIS is talking interrupts it immediately and starts a new recording; **UNTERBRECHEN** only stops the speech.
+
+Voice quality is worth two minutes of setup. A fresh macOS install ships only the compact German voice, which sounds like a decade-old navigation system. Download a **Premium** voice under **System Settings → Accessibility → Spoken Content → System Voice → Manage Voices → German** — Petra, Markus, and Viktor are the natural-sounding ones. The assistant picks the best installed German voice automatically, preferring premium over enhanced over compact, so a downloaded voice is used after the next restart without any configuration. Siri's own voices stay unavailable: Apple does not expose them to third-party apps through either speech synthesis or `say`.
+
+### Safety rules
+
+- reading data and controlling media run without a prompt
+- irreversible actions always ask first, for example *„Der Papierkorb wird endgültig geleert. Fortfahren?“*, and only run after a click or a spoken *ja*
+- writing into the calendar asks the same way and names the appointment first, for example *„Ich trage „Zahnarzt“ am 14.03.2026 um 15:00 Uhr in deinen Google-Kalender ein. Fortfahren?“*
+- an appointment is only created with a real date and time; a missing hour is asked for instead of guessed
+- only web addresses with `http` or `https` are opened in Chrome, so no `file:` or `javascript:` address can be reached by voice
+- the action layer independently rejects an unconfirmed irreversible action, regardless of what the model asked for
+- only the functions in `features/assistant/tools.ts` exist; the model cannot invent new ones
+- programs come from an allowlist, files stay inside your home directory, and symlinks that would leave it are rejected
+- system commands run through `execFile` with argument lists, so no spoken text reaches a shell
+- the action layer listens on loopback only and refuses requests carrying a foreign `Origin`
+
+### Model
+
+Tool calling uses its own model so grounded knowledge answers stay untouched. The model must support tools in Ollama.
+
+```dotenv
+OLLAMA_ASSISTANT_MODEL=qwen3.5:4b
+```
+
+Without this variable the assistant falls back to `OLLAMA_MODEL`.
+
+### Connect Spotify
+
+Playback control requires Spotify Premium. Login uses Authorization Code with PKCE, so no client secret is stored anywhere.
+
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and sign in.
+2. Choose **Create app**. Any name and description work, for example *JARVIS Local*.
+3. Add exactly `http://127.0.0.1:4319/callback` as **Redirect URI**. Spotify requires the explicit loopback IP; `localhost` is rejected.
+4. Select **Web API** as the intended API and save.
+5. Copy the **Client ID** from the app settings into `.env.local`:
+
+```dotenv
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_REDIRECT_PORT=4319
+```
+
+6. Restart `npm run dev`, open the assistant panel, and press **VERBINDEN**. The login opens in your default browser; JARVIS waits on the loopback port and stores the tokens in `spotify-auth.json` next to the knowledge index, readable only by your user account (`chmod 600`).
+
+If no Spotify device is awake, JARVIS opens the Spotify app and transfers playback to it before starting. **TRENNEN** deletes the stored tokens.
+
+### Connect Google
+
+Calendar and mail share one login. It uses Authorization Code with PKCE on a loopback port, exactly like Spotify.
+
+1. Open the [Google Cloud console](https://console.cloud.google.com/), create a project, and open **APIs & Services**.
+2. Under **Enabled APIs & services → + ENABLE APIS AND SERVICES**, enable the **Google Calendar API** and the **Gmail API**.
+3. Configure the **OAuth consent screen** as **External**, and add your own Google address under **Audience → Test users**. A personal app stays in testing mode; the consent screen therefore shows an *unverified app* warning that you confirm through **Advanced → Go to JARVIS**.
+4. Under **Credentials → + CREATE CREDENTIALS → OAuth client ID**, choose the type **Desktop app**. Google allows loopback redirects for that type, so no redirect URI has to be registered.
+5. Copy the client ID and the client secret into `.env.local`. For a desktop client the secret is not a secret in the usual sense; it stays in the git-ignored file on this Mac.
+
+```dotenv
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_REDIRECT_PORT=4320
+JARVIS_TIME_ZONE=Europe/Berlin
+```
+
+6. Restart `npm run dev`, open the assistant panel, and press **VERBINDEN** next to *GOOGLE*. The consent screen opens in your default browser and asks for exactly two permissions: calendar events, and reading mail. JARVIS waits on the loopback port and stores the tokens in `google-auth.json` next to the knowledge index with owner-only permissions (`chmod 600`).
+
+**TRENNEN** deletes the stored tokens and revokes them at Google. Access can also be withdrawn any time under [third-party access](https://myaccount.google.com/connections) in your Google account.
+
+### macOS permissions
+
+Volume control and emptying the trash use AppleScript. macOS asks once for permission to control Finder and System Events; without it the assistant reports the missing permission instead of failing silently. Grant it under **System Settings → Privacy & Security → Automation**.
+
+Additional programs can be allowed by voice with a comma-separated list:
+
+```dotenv
+JARVIS_ALLOWED_APPS=Figma,Slack
+```
+
+Not yet included: the *Jarvis* wake word and Notion knowledge as a tool. Knowledge questions stay in the text field for now.
 
 ## Connect Notion safely
 
@@ -274,7 +398,11 @@ from `.env.local.example` on purpose so the normal setup stays minimal.
 | Tech briefing | OpenAI News, GitHub Changelog, Techpresso, Hacker News | server-side aggregation, scoring, and deduplication |
 | Tech vocabulary | curated local catalogue + optional Notion table | deterministic five-term daily rotation; explicit single-row export |
 | Weather | Open-Meteo | server-side fetch with a 30-minute memory cache |
-| Voice input | microphone + local whisper.cpp | MediaRecorder capture, local large-v3-turbo transcription, manual review before sending |
+| Voice input | microphone + local whisper.cpp | MediaRecorder capture and local large-v3-turbo transcription |
+| Voice assistant | local Ollama + local action layer | local tool calling, allowlisted functions, confirmation before irreversible actions |
+| Spotify control | Spotify Web API | PKCE login on loopback, tokens stored locally with owner-only permissions |
+| Calendar and mail | Google Calendar API and Gmail API | PKCE login on loopback, two scopes only, endpoint allowlist that cannot reach sending, confirmation before every change |
+| Speech output | macOS system voices | browser speech synthesis, no network request |
 | Preferences | browser storage | stays on the current device |
 
 Techpresso is an optional source because its public archive endpoint is undocumented. If it changes or becomes unavailable, the other sources and the last daily browser cache continue to work.
@@ -307,6 +435,15 @@ npm run check
 | `npm run desktop:build` | create the Apple Silicon `.app` and `.dmg` bundles |
 | `npm run check` | run linting, type checks, unit tests, integration tests, and the production build |
 
+## Troubleshooting voice input
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `Dieser Browser kann keine Audioaufnahme bereitstellen` in the app | older build without native capture | rebuild with `npm run desktop:build`; the app records natively and the panel shows `MIKROFON NATIV` |
+| `FFmpeg conversion failed.` for every recording | whisper.cpp cannot write its conversion scratch file in the working directory | make sure `ffmpeg` is installed and that the service runs in a writable directory; the app uses `speech-scratch` in its application-support directory |
+| macOS never asks for the microphone | the app bundle lacks the usage description | rebuild; `src-tauri/Info.plist` carries `NSMicrophoneUsageDescription`, and permission can be re-granted under System Settings → Privacy & Security → Microphone |
+| Recording works, but nothing is understood | the wrong input device is selected | pick the intended microphone under System Settings → Sound → Input; the capture always follows the system default input |
+
 ## Troubleshooting
 
 - **Microphone access denied:** allow microphone access for the local JARVIS URL in the browser, then reload the page.
@@ -325,6 +462,11 @@ npm run check
 - Qwen runs through Ollama on the same device; retrieved excerpts do not leave the Mac
 - the last four Q&A turns are held only in session memory for follow-up questions and are not persisted
 - voice recordings are sent only to the local whisper.cpp process and are not persisted by JARVIS
+- the voice assistant decides locally which function to call; only Spotify, Google, and browser commands leave the Mac, and only after you connect the account in question
+- Spotify tokens live in a local file with owner-only permissions, and PKCE means no client secret exists
+- Google access covers calendar events plus reading, archiving, and trashing mail; sending is unreachable through an endpoint allowlist, permanent deletion is not granted, and new events carry no attendees and no invitations
+- Google tokens live in a local file with owner-only permissions and are revoked at Google when you disconnect
+- spoken answers use the macOS system voices without any network request
 - the Notion token stays server-side and is excluded from Git
 - Notion graph access is read-only; the optional glossary action appends only the selected row to its configured table
 - saved and hidden stories remain on the current device
@@ -337,6 +479,8 @@ The complete local data-flow and deletion guidance is documented in [Privacy](./
 ## Current scope
 
 The command bar uses retrieval-augmented generation over the local index: BM25 and embedding rankings are fused, focused passages are extracted, and the local model formulates a concise answer. Inline citations are clickable, and a deterministic post-generation guard removes claims that lack sufficient lexical support in their cited passages. If context is missing or Ollama is offline, JARVIS reports uncertainty and falls back to the deterministic source view. The knowledge graph never modifies Notion; only the explicit glossary export appends one selected row to its separately configured table.
+
+The microphone drives the spoken assistant, and the text field stays on Notion knowledge. Assistant functions are limited to the catalogue in `features/assistant/tools.ts`; the model selects from it and never extends it. Reading data and controlling media run immediately, while irreversible actions are confirmed twice, once by the user and once by the local action layer. The *Jarvis* wake word and Notion knowledge as an assistant function are deliberately not part of this stage.
 
 The Qwen and Whisper capabilities are intentionally local runtime features. A hosted frontend or Worker cannot access models running on a personal Mac unless an explicit private connection is added; the supported workflow is currently `npm run dev` on the same device as Ollama and whisper.cpp.
 
