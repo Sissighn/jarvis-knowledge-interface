@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { KnowledgeAnswer } from "@/features/knowledge/answer";
 import type { CoreState } from "../types";
 import { KnowledgeAnswerPanel } from "./KnowledgeAnswerPanel";
@@ -10,6 +10,7 @@ type CommandCenterProps = {
   speechSupported: boolean;
   speechError: string | null;
   answer: KnowledgeAnswer | null;
+  voicePanel: ReactNode;
   onQueryChange(query: string): void;
   onSubmit(event: FormEvent): void;
   onToggleListening(): void;
@@ -25,6 +26,7 @@ export function CommandCenter({
   speechSupported,
   speechError,
   answer,
+  voicePanel,
   onQueryChange,
   onSubmit,
   onToggleListening,
@@ -34,6 +36,7 @@ export function CommandCenter({
 }: CommandCenterProps) {
   return (
     <section className="command-area">
+      {voicePanel}
       {answer && (
         <KnowledgeAnswerPanel answer={answer} connected={connected} onClose={onCloseAnswer} />
       )}
@@ -52,14 +55,14 @@ export function CommandCenter({
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={state === "listening" ? "recording — press stop when finished" : state === "transcribing" ? "transcribing your recording …" : "ask a question"}
           aria-label="Jarvis befragen"
-          readOnly={state !== "idle"}
+          readOnly={state === "listening" || state === "transcribing"}
         />
         <button
           type="submit"
           className="send-button"
-          disabled={!query.trim() || state !== "idle"}
+          disabled={!query.trim() || state === "listening" || state === "transcribing" || state === "thinking"}
           aria-label="Frage senden"
-          title="Frage senden"
+          title="Frage an dein Notion-Wissen senden"
         >
           <span className="send-icon" aria-hidden="true" />
         </button>
@@ -67,9 +70,13 @@ export function CommandCenter({
           type="button"
           className={`mic-button ${state === "listening" ? "active" : ""} ${!speechSupported ? "unsupported" : ""}`}
           onClick={onToggleListening}
-          disabled={state === "transcribing" || state === "thinking"}
-          aria-label={state === "listening" ? "Aufnahme beenden" : "Spracheingabe starten"}
-          title={speechSupported ? state === "listening" ? "Aufnahme stoppen und transkribieren" : "Frage sprechen" : "Spracheingabe wird von diesem Browser nicht bereitgestellt"}
+          disabled={state === "transcribing"}
+          aria-label={state === "listening" ? "Aufnahme beenden" : "Sprachassistent starten"}
+          title={speechSupported
+            ? state === "listening"
+              ? "Aufnahme stoppen und transkribieren"
+              : state === "speaking" ? "Jarvis unterbrechen und sprechen" : "Mit Jarvis sprechen"
+            : "Diese Ansicht kann nicht auf das Mikrofon zugreifen"}
         >
           <span className={state === "listening" ? "stop-icon" : "mic-icon"} />
           {state === "listening" && <span className="mic-label">STOP</span>}

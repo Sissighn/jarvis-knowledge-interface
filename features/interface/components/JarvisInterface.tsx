@@ -13,9 +13,10 @@ import { KnowledgePanels } from "./KnowledgePanels";
 import { MorningBriefing } from "./MorningBriefing";
 import { NotionSetupDialog } from "./NotionSetupDialog";
 import { TechVocabularyCarousel } from "./TechVocabularyCarousel";
+import { VoiceAssistant } from "./VoiceAssistant";
 import { useJarvisData } from "../hooks/useJarvisData";
 import { useKnowledgeIndex } from "../hooks/useKnowledgeIndex";
-import { useVoiceRecorder } from "../hooks/useVoiceRecorder";
+import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import type { ConceptDetail, ConceptNode, CoreState, NotionStatus, ViewMode } from "../types";
 
 const DISCONNECTED_NOTION: NotionStatus = { configured: false, connected: false };
@@ -38,7 +39,7 @@ const EMPTY_SYSTEM_NODE: ConceptNode = {
 };
 
 export function JarvisInterface() {
-  const [state, setState] = useState<CoreState>("idle");
+  const [queryState, setQueryState] = useState<"idle" | "thinking">("idle");
   const [mode, setMode] = useState<ViewMode>("core");
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
@@ -121,7 +122,7 @@ export function JarvisInterface() {
     const requestId = ++requestIdRef.current;
     setQuery("");
     setAnswer(null);
-    setState("thinking");
+    setQueryState("thinking");
 
     const conversation = conversationRef.current;
     try {
@@ -174,29 +175,14 @@ export function JarvisInterface() {
     } finally {
       if (requestId === requestIdRef.current) {
         answerControllerRef.current = null;
-        setState("idle");
+        setQueryState("idle");
       }
     }
   }, []);
 
-  const {
-    supported: speechSupported,
-    error: speechError,
-    toggle: toggleListening,
-    clearError: clearSpeechError,
-  } = useVoiceRecorder({
-    onTranscript: setQuery,
-    onPhaseChange: (voicePhase) => {
-      if (voicePhase === "recording") {
-        answerControllerRef.current?.abort();
-        requestIdRef.current += 1;
-        setAnswer(null);
-      }
-      setState(voicePhase === "recording"
-        ? "listening"
-        : voicePhase === "transcribing" ? "transcribing" : "idle");
-    },
-  });
+  const assistant = useVoiceAssistant();
+  // The microphone drives the spoken assistant, the text field stays on Notion knowledge.
+  const state: CoreState = assistant.phase === "idle" ? queryState : assistant.phase;
 
   const selectCategory = (category: string) => {
     const node = nodes.find((candidate) => candidate.group === category && candidate.kind === "concept");
@@ -206,12 +192,16 @@ export function JarvisInterface() {
 
   const runQuery = (event: FormEvent) => {
     event.preventDefault();
-    if (state === "idle") void executeQuery(query);
+    if (state === "listening" || state === "transcribing" || state === "thinking") return;
+    assistant.stopSpeaking();
+    void executeQuery(query);
   };
 
   const statusText = state === "listening"
     ? "ICH HÖRE ZU"
-    : state === "transcribing" ? "SPRACHE WIRD TRANSKRIBIERT" : state === "thinking" ? "ICH VERBINDE WISSEN" : "SYSTEM BEREIT";
+    : state === "transcribing"
+      ? "SPRACHE WIRD TRANSKRIBIERT"
+      : state === "speaking" ? "ICH ANTWORTE DIR" : state === "thinking" ? "ICH VERBINDE WISSEN" : "SYSTEM BEREIT";
   const conceptCount = nodes.filter((node) => node.kind === "concept").length;
   // Closing keeps the canvas mounted so the graph layout, zoom and trails survive.
   const closeSetup = useCallback(() => setSetupOpen(false), []);
@@ -247,6 +237,7 @@ export function JarvisInterface() {
         <NeuralCanvas
           key={mode}
           state={state}
+          speechActivity={assistant.speechActivity}
           mode={mode}
           nodes={nodes}
           edges={edges}
@@ -264,7 +255,11 @@ export function JarvisInterface() {
           <div className="core-copy">
             <span>{state === "listening"
               ? "SPRICH EINFACH LOS · STOPP WENN DU FERTIG BIST"
-              : state === "transcribing" ? "WHISPER WANDELT DEINE AUFNAHME IN TEXT UM" : state === "thinking" ? "MUSTER WERDEN ANALYSIERT" : "DEIN WISSEN. VERBUNDEN."}</span>
+              : state === "transcribing"
+                ? "WHISPER WANDELT DEINE AUFNAHME IN TEXT UM"
+                : state === "speaking"
+                  ? "TIPPE AUF DAS MIKROFON, UM MICH ZU UNTERBRECHEN"
+                  : state === "thinking" ? "MUSTER WERDEN ANALYSIERT" : "DEIN WISSEN. VERBUNDEN."}</span>
           </div>
         )}
       </section>
@@ -302,13 +297,40 @@ export function JarvisInterface() {
         query={query}
         state={state}
         connected={notionStatus.connected}
-        speechSupported={speechSupported}
-        speechError={speechError}
+        speechSupported={assistant.micSupported}
+        speechError={assistant.active ? null : assistant.error}
         answer={answer}
+        voicePanel={assistant.active ? (
+          <VoiceAssistant
+            phase={assistant.phase}
+            transcript={assistant.transcript}
+            reply={assistant.reply}
+            steps={assistant.steps}
+            pending={assistant.pending}
+            error={assistant.error}
+            settings={assistant.settings}
+            voices={assistant.curatedVoices}
+            voiceOutputSupported={assistant.voiceOutputSupported}
+            activeVoice={assistant.activeVoice}
+            captureMode={assistant.captureMode}
+            localStatus={assistant.localStatus}
+            connectingSpotify={assistant.connectingSpotify}
+            connectingGoogle={assistant.connectingGoogle}
+            onConfirm={assistant.answerConfirmation}
+            onStopSpeaking={assistant.stopSpeaking}
+            onSettingsChange={assistant.updateSettings}
+            onConnectSpotify={() => void assistant.startSpotifyConnect()}
+            onDisconnectSpotify={() => void assistant.stopSpotifyConnection()}
+            onConnectGoogle={() => void assistant.startGoogleConnect()}
+            onDisconnectGoogle={() => void assistant.stopGoogleConnection()}
+            onClearError={assistant.clearError}
+            onClose={assistant.reset}
+          />
+        ) : null}
         onQueryChange={setQuery}
         onSubmit={runQuery}
-        onToggleListening={toggleListening}
-        onClearSpeechError={clearSpeechError}
+        onToggleListening={assistant.toggleListening}
+        onClearSpeechError={assistant.clearError}
         onCloseAnswer={() => setAnswer(null)}
         onRunPrompt={executeQuery}
       />

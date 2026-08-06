@@ -11,8 +11,9 @@ import { useMapInteractions } from "../hooks/useMapInteractions";
 import { MapControls } from "./MapControls";
 import { createForceSimulation, syncForceSimulation } from "../map/force-simulation";
 
-export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, onSelect }: {
+export function NeuralCanvas({ state, speechActivity, mode, nodes, edges, selectedNodeId, highlightedNodeIds, onSelect }: {
   state: CoreState;
+  speechActivity: { current: number };
   mode: ViewMode;
   nodes: ConceptNode[];
   edges: ConceptEdge[];
@@ -140,6 +141,7 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
           height,
           time,
           state,
+          speechActivity: state === "speaking" ? speechActivity.current : 0,
           coreBounds: coreBoundsRef,
           rotation: rotationRef.current,
           pointer: pointerRef.current,
@@ -184,7 +186,7 @@ export function NeuralCanvas({ state, mode, nodes, edges, selectedNodeId, highli
       resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [state, mode, nodes, edges, selectedNodeId, highlightedNodeIds, mapFocusActive, mapHoveredNodeRef]);
+  }, [state, speechActivity, mode, nodes, edges, selectedNodeId, highlightedNodeIds, mapFocusActive, mapHoveredNodeRef]);
 
   const isInsideCore = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
