@@ -1,7 +1,11 @@
-/** Standalone local indexer process, used by `npm run dev` next to the web server. */
+/**
+ * Standalone local companion process, used by `npm run dev` next to the web server. It
+ * answers the knowledge index and the assistant actions that need this Mac.
+ */
 import { createServer, type IncomingMessage } from "node:http";
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
+import { handleLocalActionRequest, isLocalActionRequest } from "../actions/api";
 import { handleKnowledgeRequest, isKnowledgeRequest } from "./api";
 import { indexerPort } from "./config";
 import { knowledgeService } from "./service";
@@ -40,12 +44,15 @@ const server = createServer(async (incoming, response) => {
       headers: incoming.headers as HeadersInit,
       body,
     });
-    if (!isKnowledgeRequest(new URL(url).pathname)) {
+    const { pathname } = new URL(url);
+    if (!isKnowledgeRequest(pathname) && !isLocalActionRequest(pathname)) {
       response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Not Found");
       return;
     }
-    const result = await handleKnowledgeRequest(request);
+    const result = isLocalActionRequest(pathname)
+      ? await handleLocalActionRequest(request)
+      : await handleKnowledgeRequest(request);
     response.statusCode = result.status;
     result.headers.forEach((value, name) => response.setHeader(name, value));
     response.end(Buffer.from(await result.arrayBuffer()));

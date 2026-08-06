@@ -3,6 +3,7 @@ import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
 import { assets } from "../../.desktop-build/assets.generated.mjs";
 import worker from "../../dist/server/index.js";
+import { handleLocalActionRequest, isLocalActionRequest } from "../actions/api";
 import { handleKnowledgeRequest, isKnowledgeRequest } from "../indexer/api";
 
 type AssetEntry = {
@@ -140,8 +141,14 @@ const server = createServer(async (request, response) => {
       return;
     }
     // The local knowledge index runs in this Node process, never inside the worker.
-    if (isKnowledgeRequest(new URL(webRequest.url).pathname)) {
+    const { pathname } = new URL(webRequest.url);
+    if (isKnowledgeRequest(pathname)) {
       await sendResponse(await handleKnowledgeRequest(webRequest), response);
+      return;
+    }
+    // Actions that touch this Mac need Node APIs the worker runtime does not have.
+    if (isLocalActionRequest(pathname)) {
+      await sendResponse(await handleLocalActionRequest(webRequest), response);
       return;
     }
     await sendResponse(await worker.fetch(webRequest, environment, context), response);
