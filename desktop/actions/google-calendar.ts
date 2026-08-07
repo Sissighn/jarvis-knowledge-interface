@@ -21,6 +21,7 @@ import {
 
 type CalendarTime = { dateTime?: string; date?: string };
 type CalendarEvent = {
+  id?: string;
   summary?: string;
   location?: string;
   start?: CalendarTime;
@@ -121,6 +122,44 @@ export async function listAgenda(range: AgendaRange) {
   };
 }
 
+export type RangeEvent = {
+  id: string;
+  title: string;
+  day: string;
+  /** Empty for an all-day event. */
+  time: string;
+  link: string;
+};
+
+const MAX_RANGE_EVENTS = 250;
+
+/**
+ * Every event between two days, for the calendar panel. Reading a whole month is a different
+ * question from the spoken agenda: it needs the raw days, not a sentence.
+ */
+export async function listRange(fromDay: string, untilDay: string): Promise<RangeEvent[]> {
+  const payload = await googleRequest(`${EVENTS_URL}?${new URLSearchParams({
+    timeMin: startOfDay(fromDay).toISOString(),
+    timeMax: startOfDay(shiftDay(untilDay, 1)).toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: String(MAX_RANGE_EVENTS),
+  })}`) as { items?: Array<CalendarEvent & { id?: string }> } | null;
+
+  return (payload?.items ?? []).flatMap((event) => {
+    const allDay = Boolean(event.start?.date);
+    const start = allDay ? new Date(`${event.start?.date}T12:00:00Z`) : new Date(event.start?.dateTime ?? "");
+    if (Number.isNaN(start.getTime())) return [];
+    return [{
+      id: spokenText(event.id, 200) || `${event.start?.date ?? event.start?.dateTime}`,
+      title: spokenText(event.summary) || "Termin ohne Titel",
+      day: allDay ? (event.start?.date ?? "") : zonedDay(start),
+      time: allDay ? "" : zonedClock(start),
+      link: spokenText(event.htmlLink, 400),
+    }];
+  });
+}
+
 export type NewEvent = {
   title: string;
   start: string;
@@ -157,6 +196,36 @@ export async function createEvent({ title, start, duration, location }: NewEvent
     start: normalizedStart,
     duration,
     description: `${title} am ${zonedWeekday(startInstant)}, ${zonedDate(startInstant)} um ${time} Uhr`,
+    eventId: spokenText(created?.id, 200),
+    link: spokenText(created?.htmlLink, 400),
+  };
+}
+
+/**
+ * A to-do that names a day but no hour becomes an all-day entry. Inventing an hour here would
+ * put a wrong appointment in the calendar, and the deadline itself carries no time either.
+ */
+export async function createDayEvent(title: string, day: string) {
+  if (!title) throw new LocalActionError("Für den Termin fehlt noch ein Titel.", 400);
+  const [year, month, date] = day.split("-").map(Number);
+  if (!isRealDay(year, month, date)) throw new LocalActionError("Für den Termin fehlt noch ein gültiges Datum.", 400);
+
+  const created = await googleRequest(`${EVENTS_URL}?${new URLSearchParams({ sendUpdates: "none" })}`, {
+    method: "POST",
+    body: JSON.stringify({
+      summary: title,
+      start: { date: day },
+      end: { date: shiftDay(day, 1) },
+    }),
+  }) as CalendarEvent | null;
+
+  const instant = startOfDay(day);
+  return {
+    created: true,
+    title,
+    start: day,
+    description: `${title} ganztägig am ${zonedWeekday(instant)}, ${zonedDate(instant)}`,
+    eventId: spokenText(created?.id, 200),
     link: spokenText(created?.htmlLink, 400),
   };
 }
