@@ -2,6 +2,9 @@
  * Local HTTP contract for `/api/local/*`. Reachable only from this Mac and never from a
  * hosted build. Every response carries a German `summary` that the assistant reads back.
  */
+import { matchScore } from "../../features/todos/matching";
+import { orderTodos, todoCounts, todoUrgency } from "../../features/todos/ordering";
+import type { TodoItem } from "../../features/todos/types";
 import { LOCAL_ACTION_PREFIX, allowedApps } from "./config";
 import * as gmail from "./gmail";
 import * as google from "./google-auth";
@@ -19,7 +22,8 @@ import {
 } from "./macos";
 import * as speech from "./speech";
 import * as spotify from "./spotify";
-import { parseLocalDay, zonedDate } from "./zoned-time";
+import * as todos from "./todos";
+import { parseLocalDay, shiftDay, zonedDate, zonedDay } from "./zoned-time";
 
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
 const MAX_BODY_BYTES = 16 * 1024;
@@ -272,6 +276,15 @@ async function handleGoogleRoute(route: string, body: Record<string, unknown>) {
     });
   }
 
+  if (route === "/calendar/range") {
+    // The panel asks for whole months; an unconnected account is a quiet empty month, not an error.
+    if (!google.connectionStatus().connected) return json({ ok: true, connected: false, events: [] });
+    const today = zonedDay(new Date());
+    const from = parseLocalDay(body.from) || today;
+    const until = parseLocalDay(body.until) || shiftDay(from, 42);
+    return json({ ok: true, connected: true, events: await calendar.listRange(from, until) });
+  }
+
   if (route === "/calendar/create-event") {
     // Writing into the calendar never runs on the model's word alone.
     if (body.confirmed !== true) {
@@ -376,6 +389,213 @@ async function handleGoogleRoute(route: string, body: Record<string, unknown>) {
   return null;
 }
 
+const TODO_FILTERS = ["open", "today", "overdue", "done", "all"] as const;
+type TodoFilter = (typeof TODO_FILTERS)[number];
+
+const CATEGORY_MATCH_THRESHOLD = 0.5;
+
+function todoFilter(value: unknown): TodoFilter {
+  const candidate = readString(value, 20).toLowerCase();
+  return (TODO_FILTERS as readonly string[]).includes(candidate) ? candidate as TodoFilter : "open";
+}
+
+function selectTodos(items: TodoItem[], filter: TodoFilter, category: string, now: string) {
+  const scoped = category
+    ? items.filter((todo) => matchScore(todo.category, category) >= CATEGORY_MATCH_THRESHOLD)
+    : items;
+  if (filter === "all") return scoped;
+  if (filter === "done") return scoped.filter((todo) => todo.done);
+  return scoped.filter((todo) => {
+    const urgency = todoUrgency(todo, now);
+    if (urgency === "done") return false;
+    if (filter === "overdue") return urgency === "overdue";
+    // "Was steht heute an" means today plus everything that is already late.
+    if (filter === "today") return urgency === "today" || urgency === "overdue";
+    return true;
+  });
+}
+
+function todoListSummary(selected: TodoItem[], filter: TodoFilter, category: string, now: string) {
+  // The spoken word was only a search text; what is read back is the category as it is stored.
+  const label = selected.find((todo) => todo.category)?.category || category;
+  const scope = category ? ` in der Kategorie ${label}` : "";
+  if (!selected.length) {
+    if (filter === "overdue") return `Du hast nichts Überfälliges${scope}.`;
+    if (filter === "today") return `Für heute steht nichts${scope} an.`;
+    if (filter === "done") return `Es ist noch nichts${scope} abgehakt.`;
+    return `Deine To-do-Liste ist leer${scope ? `,${scope}` : ""}.`;
+  }
+
+  const spoken = todos.describeTodos(selected, now);
+  const count = selected.length;
+  const word = count === 1 ? "Aufgabe" : "Aufgaben";
+  if (filter === "overdue") return `Du hast ${count} überfällige ${word}${scope}: ${spoken}.`;
+  if (filter === "today") return `Heute stehen ${count} ${word}${scope} an: ${spoken}.`;
+  if (filter === "done") return `Abgehakt sind ${count} ${word}${scope}: ${spoken}.`;
+  // "all" also contains what is already checked off, so it must not be called open.
+  if (filter === "all") return `Auf deiner Liste stehen ${count} ${word}${scope}: ${spoken}.`;
+
+  const overdue = selected.filter((todo) => todoUrgency(todo, now) === "overdue").length;
+  const warning = overdue
+    ? ` ${overdue === 1 ? "Eine davon ist" : `${overdue} davon sind`} überfällig.`
+    : "";
+  return `Du hast ${count} offene ${word}${scope}: ${spoken}.${warning}`;
+}
+
+function todoListPayload(filter: TodoFilter, category: string) {
+  const now = todos.nowWallClock();
+  const items = todos.readTodos();
+  const selected = orderTodos(selectTodos(items, filter, category, now), now);
+  return {
+    ok: true,
+    now,
+    filter,
+    todos: selected,
+    counts: todoCounts(items, now),
+    summary: todoListSummary(selected, filter, category, now),
+  };
+}
+
+/** The open count is what makes a spoken confirmation useful, so it follows every change. */
+function remainingHint(now: string) {
+  const open = todoCounts(todos.readTodos(), now).open;
+  if (!open) return " Damit ist nichts mehr offen.";
+  return ` Offen sind noch ${open} ${open === 1 ? "Aufgabe" : "Aufgaben"}.`;
+}
+
+async function handleTodoRoute(route: string, body: Record<string, unknown>) {
+  if (!route.startsWith("/todos/")) return null;
+  const id = readString(body.id, 80);
+  const query = readString(body.query, 200);
+
+  if (route === "/todos/list") {
+    return json(todoListPayload(todoFilter(body.filter), readString(body.category, 40)));
+  }
+
+  if (route === "/todos/add") {
+    const created = todos.addTodo({
+      title: readString(body.title, 160),
+      due: body.due,
+      category: body.category,
+      important: body.important,
+      steps: body.steps,
+    });
+    const now = todos.nowWallClock();
+    const when = todos.spokenDue(created.due, now);
+    const marked = created.important ? " als wichtig" : "";
+    const filed = created.category ? ` unter ${created.category}` : "";
+    return json({
+      ok: true,
+      summary: `„${created.title}“ steht jetzt${marked}${filed} auf deiner To-do-Liste${when ? `, fällig ${when}` : ""}.`,
+      todo: created,
+      now,
+    });
+  }
+
+  if (route === "/todos/add-step") {
+    const result = todos.addStep(id, query, readString(body.title, 160));
+    return json({
+      ok: true,
+      summary: `„${result.step.title}“ ist jetzt ein Unterpunkt von „${result.todo.title}“.`,
+      ...result,
+    });
+  }
+
+  if (route === "/todos/complete" || route === "/todos/reopen") {
+    const done = route === "/todos/complete";
+    const result = todos.setDone(id, query, done, readString(body.step, 200), readString(body.stepId, 80));
+    const now = todos.nowWallClock();
+    const subject = result.step
+      ? `Der Unterpunkt „${result.step.title}“ bei „${result.todo.title}“`
+      : `„${result.todo.title}“`;
+    const open = result.todo.steps.filter((step) => !step.done).length;
+    const rest = !result.step
+      ? remainingHint(now)
+      : done
+        ? open
+          ? ` Bei „${result.todo.title}“ ${open === 1 ? "ist noch 1 Unterpunkt" : `sind noch ${open} Unterpunkte`} offen.`
+          : ` Damit sind alle Unterpunkte von „${result.todo.title}“ erledigt.`
+        : "";
+    return json({
+      ok: true,
+      summary: `${subject} ist ${done ? "abgehakt" : "wieder offen"}.${rest}`,
+      ...result,
+      now,
+    });
+  }
+
+  if (route === "/todos/update") {
+    const updated = todos.updateTodo(id, query, {
+      ...(body.title === undefined ? {} : { title: body.title }),
+      ...(body.due === undefined ? {} : { due: body.due }),
+      ...(body.category === undefined ? {} : { category: body.category }),
+      ...(body.important === undefined ? {} : { important: body.important }),
+    });
+    return json({ ok: true, summary: `„${updated.title}“ ist aktualisiert.`, todo: updated });
+  }
+
+  if (route === "/todos/remove-step") {
+    const result = todos.removeStep(id, readString(body.stepId, 80));
+    return json({ ok: true, summary: `„${result.step.title}“ ist entfernt.`, ...result });
+  }
+
+  if (route === "/todos/remove") {
+    // Deleting a task cannot be undone, so it never runs on the model's word alone.
+    if (body.confirmed !== true) {
+      return failure("Diese Aktion braucht eine ausdrückliche Bestätigung.", 428, "confirmation_required");
+    }
+    const removed = todos.removeTodo(id, query);
+    return json({ ok: true, summary: `„${removed.title}“ ist gelöscht.`, todo: removed });
+  }
+
+  if (route === "/todos/clear-completed") {
+    if (body.confirmed !== true) {
+      return failure("Diese Aktion braucht eine ausdrückliche Bestätigung.", 428, "confirmation_required");
+    }
+    const cleared = todos.clearCompleted();
+    return json({
+      ok: true,
+      summary: cleared
+        ? `${cleared} erledigte ${cleared === 1 ? "Aufgabe ist" : "Aufgaben sind"} aufgeräumt.`
+        : "Es gab nichts aufzuräumen.",
+      cleared,
+    });
+  }
+
+  if (route === "/todos/calendar") {
+    // Writing into the connected account never runs on the model's word alone.
+    if (body.confirmed !== true) {
+      return failure("Diese Aktion braucht eine ausdrückliche Bestätigung.", 428, "confirmation_required");
+    }
+    const todo = todos.getTodo(id, query);
+    if (!todo.due) {
+      return failure(
+        `„${todo.title}“ hat noch kein Datum. Nenne zuerst einen Tag für die Aufgabe.`,
+        400,
+        "missing_due",
+      );
+    }
+
+    const created = todo.due.length > 10
+      ? await calendar.createEvent({
+        title: todo.title,
+        start: todo.due,
+        duration: calendar.clampDuration(body.duration),
+        location: "",
+      })
+      : await calendar.createDayEvent(todo.title, todo.due);
+    const linked = todos.linkCalendarEvent(todo.id, created.eventId, created.link);
+    return json({
+      ok: true,
+      summary: `„${todo.title}“ steht jetzt auch in deinem Google-Kalender: ${created.description}.`,
+      todo: linked,
+      ...created,
+    });
+  }
+
+  return null;
+}
+
 async function handleBrowserRoute(route: string, body: Record<string, unknown>) {
   if (route === "/browser/search") {
     const query = readString(body.query, 200);
@@ -414,6 +634,7 @@ export async function handleLocalActionRequest(request: Request): Promise<Respon
       ?? await handleSpeechRoute(route, body)
       ?? await handleSpotifyRoute(route, body)
       ?? await handleGoogleRoute(route, body)
+      ?? await handleTodoRoute(route, body)
       ?? await handleBrowserRoute(route, body)
       ?? failure("Unbekannte lokale Aktion.", 404, "not_found");
   } catch (error) {
