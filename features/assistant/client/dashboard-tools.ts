@@ -73,27 +73,51 @@ function vocabularyText(payload: DailyBriefing) {
     .join(" ")}`;
 }
 
+/**
+ * What is due today, straight from the local to-do list. A hosted build has no list at all, and
+ * a day overview without tasks is still a useful day overview, so failure stays silent here.
+ */
+async function todaysTasks(signal?: AbortSignal) {
+  try {
+    const response = await fetch("/api/local/todos/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filter: "today" }),
+      signal,
+    });
+    if (!response.ok) return "";
+    const payload = await response.json() as { summary?: unknown };
+    return typeof payload.summary === "string" ? payload.summary : "";
+  } catch {
+    return "";
+  }
+}
+
 async function summaryText(signal?: AbortSignal) {
-  const [weatherResult, briefingResult] = await Promise.allSettled([weather(signal), briefing(signal)]);
+  const [weatherResult, briefingResult, tasks] = await Promise.all([
+    weather(signal).catch(() => null),
+    briefing(signal).catch(() => null),
+    todaysTasks(signal),
+  ]);
   const parts: string[] = [];
 
-  if (weatherResult.status === "fulfilled") {
-    const payload = weatherResult.value;
+  if (weatherResult) {
     parts.push(
-      `Wetter in ${payload.location}: ${Math.round(payload.current.temperature)} Grad, ${payload.current.label},`
-      + ` Regenwahrscheinlichkeit heute ${Math.round(payload.today.rainChance)} Prozent.`,
+      `Wetter in ${weatherResult.location}: ${Math.round(weatherResult.current.temperature)} Grad, ${weatherResult.current.label},`
+      + ` Regenwahrscheinlichkeit heute ${Math.round(weatherResult.today.rainChance)} Prozent.`,
     );
   } else {
     parts.push("Das Wetter ist gerade nicht abrufbar.");
   }
 
-  if (briefingResult.status === "fulfilled") {
-    const payload = briefingResult.value;
-    const headlines = payload.items.slice(0, 3).map((item) => item.title);
+  if (tasks) parts.push(tasks);
+
+  if (briefingResult) {
+    const headlines = briefingResult.items.slice(0, 3).map((item) => item.title);
     parts.push(headlines.length
       ? `Wichtigste Tech-News: ${headlines.join("; ")}.`
       : "Es liegen keine Tech-News vor.");
-    const terms = payload.vocabulary?.terms?.slice(0, 2).map((term) => term.term) ?? [];
+    const terms = briefingResult.vocabulary?.terms?.slice(0, 2).map((term) => term.term) ?? [];
     if (terms.length) parts.push(`Wörter des Tages: ${terms.join(" und ")}.`);
   } else {
     parts.push("Das Morning Briefing ist gerade nicht abrufbar.");
