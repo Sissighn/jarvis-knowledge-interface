@@ -18,6 +18,7 @@ This document describes the data flows implemented by the repository. It is not 
 | Spotify control | search terms, playback commands, and the OAuth tokens of the connected account | the loopback login uses PKCE without a client secret; playback commands and the current track are exchanged with the Spotify Web API under the granted scopes | access and refresh tokens are stored in `spotify-auth.json` next to the knowledge index with owner-only permissions until **TRENNEN** deletes them |
 | Google Calendar | the requested time range, the events returned for it, and the title, time, and optional location of an appointment the user dictates | the loopback login uses PKCE; the primary calendar is read and new events are created through the Calendar API under the `calendar.events` scope. Events are created without attendees and with `sendUpdates=none`, so entering an appointment sends no invitation to anybody | access and refresh tokens are stored in `google-auth.json` next to the knowledge index with owner-only permissions until **TRENNEN** deletes them; created events remain in the Google account until deleted there |
 | Gmail | the number of unread messages; sender, subject, and time of the few messages that are read out; a spoken search term or day; the text of a single message when a summary is asked for | requests to the Gmail API under the `gmail.modify` scope, which is the narrowest scope that allows archiving and trashing. Every request passes an allowlist of five endpoints in `desktop/actions/gmail.ts`; sending, drafts, and permanent deletion are unreachable. Archiving removes the inbox label, trashing is recoverable for 30 days, and both require an explicit confirmation and affect at most ten messages | nothing is persisted by JARVIS; mail text and metadata stay in the conversation in application memory for the current session |
+| To-do list | the task text, its optional sub-tasks, deadline, and category, entered by hand or dictated | stored and read only by the local action layer on this Mac; no task text is sent to any external service. A task reaches Google Calendar only through an explicit request and an additional confirmation, and then only its title and time | tasks remain in `todos.json` next to the knowledge index with owner-only permissions until they are deleted or the file is removed; identifiers of already delivered deadline reminders remain in browser storage |
 | Browser search | a spoken search term or web address | the term becomes a Google search URL and is opened in Google Chrome through `open` with an argument list; only `http` and `https` addresses are accepted | nothing is persisted by JARVIS beyond the browser's own history |
 | macOS actions | the name of an allowlisted program, a path inside the home directory, or a volume value | executed locally through `execFile` with argument lists; irreversible actions run only after an explicit confirmation | nothing is persisted by JARVIS beyond the effect of the action itself |
 | Speech output | the text of the spoken answer and the chosen voice settings | read out locally by the macOS speech synthesis of the browser without a network request | voice, speed, and volume remain in browser storage |
@@ -43,7 +44,7 @@ Opening a Notion page, news story, or another external link transfers the usual 
 
 ## Browser storage
 
-JARVIS uses `localStorage` for the daily briefing cache, saved or hidden story identifiers, and identifiers of vocabulary terms already exported to Notion. Indexed Notion content, concepts, and embeddings are never written to browser storage; they exist only in the local SQLite index. It does not set analytics or advertising cookies. Browser storage can be removed through the browser's site-data controls.
+JARVIS uses `localStorage` for the daily briefing cache, saved or hidden story identifiers, identifiers of vocabulary terms already exported to Notion, and identifiers of deadline reminders that have already been delivered. Indexed Notion content, concepts, and embeddings are never written to browser storage; they exist only in the local SQLite index. It does not set analytics or advertising cookies. Browser storage can be removed through the browser's site-data controls.
 
 The native app uses an embedded WebView with its own site storage. The release build prepares a private runtime copy of `.env.local` and the local speech-model reference in `~/Library/Application Support/com.sissighn.jarvis/`. The copied environment file is created with owner-only file permissions and is not included in the `.app`, DMG, or repository.
 
@@ -95,9 +96,10 @@ To remove data associated with the local setup:
 3. Stop JARVIS to clear in-memory application caches.
 4. Press **TRENNEN** in the assistant panel or delete `spotify-auth.json` next to the knowledge index, and revoke JARVIS in the Spotify account settings.
 5. Press **TRENNEN** for Google or delete `google-auth.json` next to the knowledge index, and remove JARVIS under [Google account third-party access](https://myaccount.google.com/connections).
-6. Delete `.env.local` and revoke the Notion integration token in Notion.
-7. Delete downloaded model files or uninstall the local model runtimes if they are no longer needed.
-8. For the native app, disable **Beim Anmelden öffnen**, remove the JARVIS application, and delete `~/Library/Application Support/com.sissighn.jarvis/`.
+6. Delete individual tasks in the TASKS panel, or remove `todos.json` next to the knowledge index to discard the whole list.
+7. Delete `.env.local` and revoke the Notion integration token in Notion.
+8. Delete downloaded model files or uninstall the local model runtimes if they are no longer needed.
+9. For the native app, disable **Beim Anmelden öffnen**, remove the JARVIS application, and delete `~/Library/Application Support/com.sissighn.jarvis/`.
 
 The macOS notification history can be managed separately in Notification Center, and notification permission can be revoked in System Settings.
 
