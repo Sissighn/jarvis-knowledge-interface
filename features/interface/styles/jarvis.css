@@ -158,12 +158,15 @@ button { color: inherit; }
 
 .visual-stage { position: absolute; inset: 82px 0 154px; }
 .neural-canvas { position: absolute; top: 0; bottom: 0; display: block; height: 100%; cursor: crosshair; touch-action: none; transition: left .35s ease, width .35s ease, opacity .35s ease; }
-.neural-canvas.mode-core, .neural-canvas.mode-map {
+.neural-canvas.mode-core, .neural-canvas.mode-map, .neural-canvas.mode-tasks {
   left: var(--left-rail);
   right: auto;
   width: calc(100% - var(--left-rail) - var(--right-rail));
 }
-.mode-core { cursor: default; }
+/* The to-do list needs more room than the concept index, and the core follows the rails. */
+.view-tasks { --left-rail: clamp(340px, 27vw, 430px); }
+.view-tasks .index-panel { display: none; }
+.mode-core, .mode-tasks { cursor: default; }
 .mode-map { cursor: grab; }
 .neural-canvas.mode-map:focus-visible {
   outline: 1px solid rgba(255, 211, 232, .34);
