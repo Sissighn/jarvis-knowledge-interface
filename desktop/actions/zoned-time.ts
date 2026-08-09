@@ -70,8 +70,11 @@ function isoDayFromParts(year: number, month: number, day: number) {
  * Normalizes the day a small model produced. Numeric dates are the reliable path, but a spoken
  * question rarely contains one: "gestern" and "am Freitag" arrive far more often, so they are
  * resolved here instead of being handed back as an error the user has to work around.
+ *
+ * A bare weekday has no direction of its own — for a mail question it is the Friday that has
+ * been, for a deadline it is the Friday that comes, so the caller says which one it means.
  */
-export function parseLocalDay(value: unknown, reference = new Date()) {
+export function parseLocalDay(value: unknown, reference = new Date(), direction: "past" | "future" = "past") {
   if (typeof value !== "string") return "";
   const text = value.trim();
   if (!text) return "";
@@ -79,7 +82,7 @@ export function parseLocalDay(value: unknown, reference = new Date()) {
   const word = text
     .toLowerCase()
     .replace(/[?!.,]+$/u, "")
-    .replace(/^(am|an|vom|von|der|den|letzten|letzter|letztes|diesen|dieser|vergangenen)\s+/u, "")
+    .replace(/^(am|an|bis|vom|von|der|den|letzten|letzter|letztes|diesen|dieser|nächsten|naechsten|kommenden|vergangenen)\s+/u, "")
     .trim();
   const today = zonedDay(reference);
 
@@ -89,8 +92,9 @@ export function parseLocalDay(value: unknown, reference = new Date()) {
   if (weekday >= 0) {
     const [year, month, day] = today.split("-").map(Number);
     const todayWeekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-    // A named weekday without a direction means the one that already happened.
-    return shiftDay(today, -((todayWeekday - weekday + 7) % 7));
+    return direction === "future"
+      ? shiftDay(today, (weekday - todayWeekday + 7) % 7)
+      : shiftDay(today, -((todayWeekday - weekday + 7) % 7));
   }
 
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/u.exec(text);
