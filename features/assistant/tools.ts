@@ -524,6 +524,47 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     }),
   },
   {
+    name: "todo_set_due",
+    target: "local",
+    path: "/todos/update",
+    label: "Frist ändern",
+    description: "Verwenden, wenn der Zeitpunkt einer bestehenden Aufgabe gesetzt, geändert oder verschoben werden soll,"
+      + " zum Beispiel „verschieb die Steuererklärung auf Freitag“ oder „der Urlaub ist erst am 20. September fällig“."
+      + " Nicht todo_add verwenden; die Aufgabe existiert bereits."
+      + " due enthält den neuen Zeitpunkt, den Tag als JJJJ-MM-TT und mit ausdrücklich genannter Uhrzeit als JJJJ-MM-TTTHH:MM."
+      + " Wurde kein Zeitpunkt genannt, kein Werkzeug aufrufen, sondern nachfragen; niemals ein Datum oder eine Uhrzeit erfinden.",
+    parameters: {
+      type: "object",
+      required: ["task", "due"],
+      properties: {
+        task: { type: "string", description: "Die bestehende Aufgabe, zum Beispiel Steuererklärung abgeben." },
+        due: {
+          type: "string",
+          description: "Der neue Zeitpunkt als JJJJ-MM-TT, mit genannter Uhrzeit als JJJJ-MM-TTTHH:MM."
+            + " Wurde nur ein Tag genannt, übergib nur den Tag; eine bereits gespeicherte Uhrzeit bleibt dabei"
+            + " von selbst erhalten und darf niemals geraten werden.",
+        },
+      },
+    },
+    parse: (args) => ({ query: readString(args.task, 160), due: readString(args.due, 40) }),
+  },
+  {
+    name: "todo_clear_due",
+    target: "local",
+    path: "/todos/update",
+    label: "Frist entfernen",
+    description: "Verwenden nur, wenn die Frist einer Aufgabe ausdrücklich entfallen soll, zum Beispiel „der Urlaub hat"
+      + " kein festes Datum mehr“ oder „nimm bei der Steuer das Datum weg“. Die Aufgabe bleibt offen und wird nicht gelöscht."
+      + " Für einen neuen Zeitpunkt stattdessen todo_set_due verwenden.",
+    parameters: {
+      type: "object",
+      required: ["task"],
+      properties: { task: { type: "string", description: "Die Aufgabe, deren Datum entfallen soll." } },
+    },
+    // null is the action layer's only signal for "no deadline"; an empty text would be a mistake there.
+    parse: (args) => ({ query: readString(args.task, 160), due: null }),
+  },
+  {
     name: "todo_complete",
     target: "local",
     path: "/todos/complete",
