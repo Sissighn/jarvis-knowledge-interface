@@ -525,13 +525,27 @@ async function handleTodoRoute(route: string, body: Record<string, unknown>) {
   }
 
   if (route === "/todos/update") {
-    const updated = todos.updateTodo(id, query, {
+    // Resolved once, so the answer can compare the deadline before and after the change.
+    const before = todos.getTodo(id, query);
+    const updated = todos.updateTodo(before.id, "", {
       ...(body.title === undefined ? {} : { title: body.title }),
       ...(body.due === undefined ? {} : { due: body.due }),
       ...(body.category === undefined ? {} : { category: body.category }),
       ...(body.important === undefined ? {} : { important: body.important }),
     });
-    return json({ ok: true, summary: `„${updated.title}“ ist aktualisiert.`, todo: updated });
+
+    const now = todos.nowWallClock();
+    const when = todos.spokenDue(updated.due, now);
+    // A moved deadline leaves the Google event where it was; only the link to it is dropped.
+    const orphan = before.calendarEventId && updated.due !== before.due
+      ? " Im Google-Kalender steht noch der alte Termin."
+      : "";
+    const summary = body.due === undefined
+      ? `„${updated.title}“ ist aktualisiert.`
+      : when
+        ? `„${updated.title}“ ist jetzt fällig ${when}.${orphan}`
+        : `„${updated.title}“ hat jetzt keine Frist mehr.${orphan}`;
+    return json({ ok: true, summary, todo: updated, now });
   }
 
   if (route === "/todos/remove-step") {
