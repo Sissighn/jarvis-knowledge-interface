@@ -55,6 +55,17 @@ function readEnum<T extends string>(value: unknown, allowed: readonly T[], fallb
   return allowed.find((entry) => entry === candidate) ?? fallback;
 }
 
+/** A small model answers a yes/no field with a word just as often as with a boolean. */
+function readFlag(value: unknown) {
+  if (typeof value === "boolean") return value;
+  return /^(true|ja|wichtig|dringend|yes)$/iu.test(readString(value, 20));
+}
+
+function readStrings(value: unknown, limit: number) {
+  const entries = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[;\n]|,\s/u) : [];
+  return entries.map((entry) => readString(entry, 160)).filter(Boolean).slice(0, limit);
+}
+
 /** Minutes are not a percentage: a two-hour meeting has to survive the clamp. */
 function readMinutes(value: unknown, fallback = 60) {
   const numeric = typeof value === "number" ? value : Number(readString(value).replace(/[^\d]/gu, ""));
@@ -125,7 +136,7 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
     name: "get_dashboard_summary",
     target: "dashboard",
     label: "Dashboard-Zusammenfassung",
-    description: "Verwenden nur für einen allgemeinen Tagesüberblick oder eine komplette Dashboard-Zusammenfassung. Enthält Wetter, Regen, Tech-News und Wörter des Tages; die Einzelwerkzeuge dann nicht zusätzlich aufrufen.",
+    description: "Verwenden nur für einen allgemeinen Tagesüberblick oder eine komplette Dashboard-Zusammenfassung. Enthält Wetter, heutige Aufgaben, Tech-News und Wörter des Tages; die Einzelwerkzeuge dann nicht zusätzlich aufrufen.",
     parameters: NO_ARGUMENTS,
   },
   {
@@ -436,6 +447,149 @@ export const ASSISTANT_TOOLS: AssistantTool[] = [
       date: readString(args.date, 40),
     }),
     confirmation: (args) => `Ich lege ${mailScope(args)} in den Papierkorb. Fortfahren?`,
+  },
+  {
+    name: "todo_add",
+    target: "local",
+    path: "/todos/add",
+    label: "Aufgabe hinzufügen",
+    description: "Verwenden, wenn etwas auf die To-do-Liste, Aufgabenliste oder Merkliste soll, zum Beispiel „füg zu meiner To-do-Liste hinzu, dass ich einen Urlaub planen muss“."
+      + " title enthält die Aufgabe als kurze Tätigkeit ohne Füllwörter, also „Urlaub planen“."
+      + " due bleibt leer, wenn kein Zeitpunkt genannt wurde; eine Aufgabe ohne Datum ist völlig normal und bleibt einfach offen.",
+    parameters: {
+      type: "object",
+      required: ["title"],
+      properties: {
+        title: { type: "string", description: "Die Aufgabe, zum Beispiel Urlaub planen." },
+        due: {
+          type: "string",
+          description: "Nur bei ausdrücklich genanntem Zeitpunkt. Tag als JJJJ-MM-TT, mit Uhrzeit als JJJJ-MM-TTTHH:MM."
+            + " Ohne genannte Uhrzeit nur den Tag übergeben und keine Uhrzeit erfinden.",
+        },
+        category: { type: "string", description: "Optionale Kategorie, zum Beispiel Urlaub oder Uni. Nur bei ausdrücklicher Nennung." },
+        important: { type: "boolean", description: "true, wenn die Aufgabe ausdrücklich als wichtig oder dringend bezeichnet wurde." },
+        steps: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optionale Unterpunkte, wenn im selben Satz mehrere Teilschritte genannt wurden.",
+        },
+      },
+    },
+    parse: (args) => ({
+      title: readString(args.title, 160),
+      due: readString(args.due, 40),
+      category: readString(args.category, 40),
+      important: readFlag(args.important),
+      steps: readStrings(args.steps, 25),
+    }),
+  },
+  {
+    name: "todo_add_step",
+    target: "local",
+    path: "/todos/add-step",
+    label: "Unterpunkt hinzufügen",
+    description: "Verwenden, wenn zu einer bestehenden Aufgabe ein Unterpunkt, Teilschritt oder Unterpunkt-Detail ergänzt werden soll, zum Beispiel „füg beim Urlaub noch Flug buchen dazu“.",
+    parameters: {
+      type: "object",
+      required: ["task", "title"],
+      properties: {
+        task: { type: "string", description: "Die bestehende Aufgabe, zu der der Unterpunkt gehört, zum Beispiel Urlaub planen." },
+        title: { type: "string", description: "Der neue Unterpunkt, zum Beispiel Flug buchen." },
+      },
+    },
+    parse: (args) => ({ query: readString(args.task, 160), title: readString(args.title, 160) }),
+  },
+  {
+    name: "todo_list",
+    target: "local",
+    path: "/todos/list",
+    label: "To-do-Liste",
+    description: "Verwenden bei Fragen nach der To-do-Liste, den offenen Aufgaben, dem was heute ansteht oder was überfällig ist."
+      + " filter ist open für alle offenen Aufgaben, today für heute und Überfälliges, overdue nur für Überfälliges, done für Abgehaktes.",
+    parameters: {
+      type: "object",
+      required: [],
+      properties: {
+        filter: {
+          type: "string",
+          enum: ["open", "today", "overdue", "done", "all"],
+          description: "Welcher Ausschnitt der Liste. Standard ist open.",
+        },
+        category: { type: "string", description: "Optional nur eine Kategorie, zum Beispiel Urlaub." },
+      },
+    },
+    parse: (args) => ({
+      filter: readEnum(args.filter, ["open", "today", "overdue", "done", "all"] as const, "open"),
+      category: readString(args.category, 40),
+    }),
+  },
+  {
+    name: "todo_complete",
+    target: "local",
+    path: "/todos/complete",
+    label: "Aufgabe abhaken",
+    description: "Verwenden, wenn eine Aufgabe oder ein Unterpunkt erledigt ist und abgehakt werden soll, zum Beispiel „hak den Urlaub ab“ oder „Flug buchen ist erledigt“."
+      + " task benennt die Aufgabe; step nur setzen, wenn ausdrücklich ein Unterpunkt gemeint ist. Abhaken löscht nichts.",
+    parameters: {
+      type: "object",
+      required: ["task"],
+      properties: {
+        task: { type: "string", description: "Die gemeinte Aufgabe, zum Beispiel Urlaub planen." },
+        step: { type: "string", description: "Nur wenn ein einzelner Unterpunkt abgehakt werden soll, zum Beispiel Flug buchen." },
+      },
+    },
+    parse: (args) => ({ query: readString(args.task, 160), step: readString(args.step, 160) }),
+  },
+  {
+    name: "todo_reopen",
+    target: "local",
+    path: "/todos/reopen",
+    label: "Aufgabe wieder öffnen",
+    description: "Verwenden, wenn eine abgehakte Aufgabe doch noch offen ist und zurück in die Liste soll.",
+    parameters: {
+      type: "object",
+      required: ["task"],
+      properties: {
+        task: { type: "string", description: "Die gemeinte Aufgabe." },
+        step: { type: "string", description: "Nur wenn ein einzelner Unterpunkt wieder offen sein soll." },
+      },
+    },
+    parse: (args) => ({ query: readString(args.task, 160), step: readString(args.step, 160) }),
+  },
+  {
+    name: "todo_remove",
+    target: "local",
+    path: "/todos/remove",
+    label: "Aufgabe löschen",
+    description: "Verwenden nur, wenn eine Aufgabe ausdrücklich gelöscht oder entfernt werden soll. Für eine erledigte Aufgabe stattdessen todo_complete verwenden, denn Löschen kann nicht rückgängig gemacht werden.",
+    parameters: {
+      type: "object",
+      required: ["task"],
+      properties: { task: { type: "string", description: "Die zu löschende Aufgabe." } },
+    },
+    parse: (args) => ({ query: readString(args.task, 160) }),
+    confirmation: (args) => {
+      const task = readString(args.query, 160) || readString(args.task, 160);
+      return `Ich lösche „${task}“ endgültig aus deiner To-do-Liste. Fortfahren?`;
+    },
+  },
+  {
+    name: "todo_to_calendar",
+    target: "local",
+    path: "/todos/calendar",
+    label: "Aufgabe in den Kalender",
+    description: "Verwenden nur, wenn der Nutzer eine bestehende Aufgabe ausdrücklich auch in den Google-Kalender eintragen will."
+      + " Die Aufgabe muss bereits ein Datum haben; ohne Datum zuerst nachfragen. Von sich aus nie vorschlagen.",
+    parameters: {
+      type: "object",
+      required: ["task"],
+      properties: { task: { type: "string", description: "Die Aufgabe, die zusätzlich im Kalender stehen soll." } },
+    },
+    parse: (args) => ({ query: readString(args.task, 160) }),
+    confirmation: (args) => {
+      const task = readString(args.query, 160) || readString(args.task, 160);
+      return `Ich trage „${task}“ zusätzlich in deinen Google-Kalender ein. Fortfahren?`;
+    },
   },
   {
     name: "chrome_search",
