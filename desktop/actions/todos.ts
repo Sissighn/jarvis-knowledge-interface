@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "n
 import { resolve } from "node:path";
 import { dueSentence } from "../../features/todos/format";
 import { findTodo, findTodoOrStep } from "../../features/todos/matching";
-import { orderTodos, todoCounts, todoUrgency, wallClockNow } from "../../features/todos/ordering";
+import { dueTime, orderTodos, todoCounts, todoUrgency, wallClockNow } from "../../features/todos/ordering";
 import type { TodoItem, TodoStep } from "../../features/todos/types";
 import { databaseDirectory } from "../indexer/config";
 import { localTimeZone } from "./config";
@@ -255,16 +255,40 @@ export function setDone(id: string, query: string, done: boolean, stepQuery = ""
 
 export type TodoPatch = {
   title?: unknown;
+  /** `null` drops the deadline on purpose; anything unreadable is a mistake, not a removal. */
   due?: unknown;
   category?: unknown;
   important?: unknown;
 };
 
+/**
+ * The new deadline of a to-do. A moved deadline arrives as spoken text just as often as as a plain
+ * date, and a text nobody could read must not quietly turn into "no deadline at all": only an
+ * explicit `null` clears the date.
+ *
+ * A new day without a time keeps the time the to-do already had, because "verschieb das auf
+ * Freitag" moves the day and says nothing about the hour. The kept hour is the user's own, never
+ * an invented one, and the answer reads the whole deadline back.
+ */
+function patchedDue(value: unknown, previous: string) {
+  if (value === null) return "";
+  const due = parseDue(value);
+  if (!due) {
+    throw new LocalActionError(
+      "Diesen Zeitpunkt habe ich nicht verstanden. Nenne einen Tag, zum Beispiel morgen oder den 14. August.",
+      400,
+    );
+  }
+  const kept = dueTime(previous);
+  if (dueTime(due) || !kept) return due;
+  return `${due}T${kept}`;
+}
+
 export function updateTodo(id: string, query: string, patch: TodoPatch) {
   const todos = readTodos();
   const todo = requireTodo(todos, id, query);
   const title = patch.title === undefined ? todo.title : readString(patch.title, MAX_TITLE) || todo.title;
-  const due = patch.due === undefined ? todo.due : parseDue(patch.due);
+  const due = patch.due === undefined ? todo.due : patchedDue(patch.due, todo.due);
   const updated: TodoItem = {
     ...todo,
     title,
