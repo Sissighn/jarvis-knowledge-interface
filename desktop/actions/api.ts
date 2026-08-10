@@ -16,6 +16,7 @@ import {
   LocalActionError,
   openApp,
   openInBrowser,
+  openLink,
   openPath,
   setSystemVolume,
   webSearchUrl,
@@ -625,6 +626,12 @@ async function handleBrowserRoute(route: string, body: Record<string, unknown>) 
       summary: `Ich habe ${new URL(result.url).hostname} in ${result.app} geöffnet.`,
       ...result,
     });
+  }
+
+  // What a clicked link in the interface uses: the default browser, not a named one.
+  if (route === "/browser/open-link") {
+    const result = await openLink(readString(body.url, 2_000));
+    return json({ ok: true, summary: `Ich habe ${new URL(result.url).hostname} geöffnet.`, ...result });
   }
 
   return null;
