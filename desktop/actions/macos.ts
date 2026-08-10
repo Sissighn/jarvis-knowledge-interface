@@ -176,6 +176,22 @@ export function webSearchUrl(query: string) {
   return `https://www.google.com/search?${new URLSearchParams({ q: query })}`;
 }
 
+/**
+ * Opens a web address in whatever browser this Mac uses by default. This is the path behind a
+ * link the user clicked in the interface: the packaged webview refuses to open a second window
+ * of its own, and a clicked link belongs in the user's own browser, not necessarily in Chrome.
+ */
+export async function openLink(url: string) {
+  requireMacOs();
+  const target = normalizeWebUrl(url);
+  try {
+    await run("open", [target], { timeout: COMMAND_TIMEOUT_MS });
+    return { url: target };
+  } catch {
+    throw new LocalActionError("Der Mac konnte die Adresse nicht öffnen.", 500);
+  }
+}
+
 /** Opens an address in an allowlisted browser, by default in Google Chrome. */
 export async function openInBrowser(url: string, browser = "Google Chrome") {
   requireMacOs();
