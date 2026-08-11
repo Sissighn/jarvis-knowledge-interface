@@ -30,6 +30,8 @@ test("every tool that changes something asks for a confirmation", () => {
     "calendar_create_event",
     "gmail_archive_mails",
     "gmail_trash_mails",
+    "todo_remove",
+    "todo_to_calendar",
   ]);
   assert.equal(
     confirmationQuestion(confirming[0], {}),
@@ -151,6 +153,60 @@ test("coerces the arguments of the new account tools", () => {
   assert.ok(mails);
   assert.deepEqual(parseToolArguments(mails, { date: "2026-08-05" }), { query: "", date: "2026-08-05" });
   assert.deepEqual(parseToolArguments(search, { query: "  neue   Mac   Modelle " }), { query: "neue Mac Modelle" });
+});
+
+test("the to-do tools separate checking off from deleting", () => {
+  const complete = findAssistantTool("todo_complete");
+  const remove = findAssistantTool("todo_remove");
+  const add = findAssistantTool("todo_add");
+  assert.ok(complete && remove && add);
+
+  // Checking something off is reversible and must never stop for a confirmation.
+  assert.equal(confirmationQuestion(complete, parseToolArguments(complete, { task: "Urlaub planen" })), null);
+  assert.equal(
+    confirmationQuestion(remove, parseToolArguments(remove, { task: "Urlaub planen" })),
+    "Ich lösche „Urlaub planen“ endgültig aus deiner To-do-Liste. Fortfahren?",
+  );
+  // The spoken task name reaches the action layer as its search text.
+  assert.deepEqual(parseToolArguments(complete, { task: "  Urlaub   planen ", step: "Flug buchen" }), {
+    query: "Urlaub planen",
+    step: "Flug buchen",
+  });
+  // A date the user never said must not become a deadline.
+  assert.deepEqual(parseToolArguments(add, { title: "Urlaub planen" }), {
+    title: "Urlaub planen",
+    due: "",
+    category: "",
+    important: false,
+    steps: [],
+  });
+  assert.deepEqual(parseToolArguments(add, { title: "Steuer", due: "2026-08-14T15:00", important: "ja", steps: ["Belege sortieren"] }), {
+    title: "Steuer",
+    due: "2026-08-14T15:00",
+    category: "",
+    important: true,
+    steps: ["Belege sortieren"],
+  });
+});
+
+test("a moved deadline reaches the action layer, and only an explicit wish clears one", () => {
+  const setDue = findAssistantTool("todo_set_due");
+  const clearDue = findAssistantTool("todo_clear_due");
+  assert.ok(setDue && clearDue);
+
+  // Changing a deadline is reversible, so it never stops the turn for a confirmation.
+  assert.equal(confirmationQuestion(setDue, parseToolArguments(setDue, { task: "Steuer", due: "2026-08-14" })), null);
+  assert.deepEqual(parseToolArguments(setDue, { task: "  Steuer   abgeben ", due: "2026-08-14T15:00" }), {
+    query: "Steuer abgeben",
+    due: "2026-08-14T15:00",
+  });
+  // An empty date stays empty here; the action layer refuses it instead of dropping the deadline.
+  assert.deepEqual(parseToolArguments(setDue, { task: "Steuer abgeben" }), { query: "Steuer abgeben", due: "" });
+  // Removing a date has its own tool, so no invented argument can ever clear one by accident.
+  assert.deepEqual(parseToolArguments(clearDue, { task: "Urlaub planen", due: "2026-08-14" }), {
+    query: "Urlaub planen",
+    due: null,
+  });
 });
 
 test("drops arguments for tools that take none", () => {
