@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type React from "react";
+import { openExternalUrl } from "@/features/desktop/links";
 import type { ConceptNode, ViewMode } from "../types";
 import type { CanvasSize, MapPoint } from "../map/types";
 import { moveForceNode, releaseForceNode, type ForceSimulation } from "../map/force-simulation";
@@ -179,7 +180,7 @@ export function useMapInteractions({
     const rect = event.currentTarget.getBoundingClientRect();
     const hit = closestPoint(event.clientX - rect.left, event.clientY - rect.top, 32);
     if (hit?.node.kind !== "system" && hit?.node.notionUrl) {
-      window.open(hit.node.notionUrl, "_blank", "noopener,noreferrer");
+      void openExternalUrl(hit.node.notionUrl);
     }
   }, [closestPoint, mode]);
 
