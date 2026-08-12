@@ -66,10 +66,16 @@ export function curatedVoices(voices: SpeechVoice[]): SpeechVoice[] {
     .filter((voice): voice is SpeechVoice => Boolean(voice));
 }
 
-/** The voice that will actually speak, so the panel can show it instead of guessing. */
-export function resolveVoice(voices: SpeechVoice[], settings: VoiceSettings) {
-  const curated = curatedVoices(voices);
-  return curated.find((voice) => voice.uri === settings.voiceUri) ?? curated[0] ?? null;
+/**
+ * The voice that will actually speak, so the panel can show it instead of guessing.
+ *
+ * This takes the voices the panel offers, not every voice that exists. Deciding what is worth
+ * offering is `curatedVoices` for the browser list and the local voice service for its own, and
+ * scoring macOS quality tiers a second time here would drop a service voice that has no such
+ * marker in favour of a system one the panel never showed.
+ */
+export function resolveVoice(offered: SpeechVoice[], settings: VoiceSettings) {
+  return offered.find((voice) => voice.uri === settings.voiceUri) ?? offered[0] ?? null;
 }
 
 /** Voices arrive asynchronously in WebKit, so the UI subscribes instead of polling. */
