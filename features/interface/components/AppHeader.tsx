@@ -1,3 +1,4 @@
+import { openExternalUrl } from "@/features/desktop/links";
 import type { NotionStatus, WeatherPayload } from "../types";
 import type { LocalModelStatus } from "@/features/ai/types";
 
@@ -47,7 +48,18 @@ export function AppHeader({
                 <b>{weather.location}</b>
                 <small>
                   {weather.current.label} · H {Math.round(weather.today.max)}° / T {Math.round(weather.today.min)}° · {Math.round(weather.today.rainChance)}% REGEN
-                  {" · "}<a href={weather.attribution.url} target="_blank" rel="noreferrer">OPEN-METEO</a>
+                  {" · "}
+                  <a
+                    href={weather.attribution.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void openExternalUrl(weather.attribution.url);
+                    }}
+                  >
+                    OPEN-METEO
+                  </a>
                 </small>
               </span>
             </>
