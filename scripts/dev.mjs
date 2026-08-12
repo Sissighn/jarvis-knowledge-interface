@@ -7,6 +7,7 @@ const processes = [
   spawn("npm", webArguments, { stdio: "inherit" }),
   spawn("npm", ["run", "dev:indexer"], { stdio: "inherit" }),
   spawn("npm", ["run", "dev:speech"], { stdio: "inherit" }),
+  spawn("npm", ["run", "dev:voice"], { stdio: "inherit" }),
 ];
 let shuttingDown = false;
 
@@ -34,5 +35,11 @@ processes[1].on("exit", (code) => {
 processes[2].on("exit", (code) => {
   if (!shuttingDown && code !== 0) {
     console.warn("Local speech-to-text is unavailable; the web interface remains active.");
+  }
+});
+
+processes[3].on("exit", (code) => {
+  if (!shuttingDown && code !== 0) {
+    console.warn("The local voice service is unavailable; JARVIS falls back to the macOS voices.");
   }
 });
