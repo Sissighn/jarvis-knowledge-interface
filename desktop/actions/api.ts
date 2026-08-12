@@ -159,28 +159,20 @@ async function handleSpeechRoute(route: string, body: Record<string, unknown>) {
     return json({ ok: true, voices: await speech.availableVoices() });
   }
 
-  if (route === "/speech/speak") {
-    const text = readString(body.text, 4_000);
-    const voice = readString(body.voice, 80);
-    const rate = typeof body.rate === "number" ? body.rate : 1;
-    const volume = typeof body.volume === "number" ? body.volume : 1;
-    // Resolves only once the sentence has been spoken or was interrupted.
-    return json({ ok: true, ...(await speech.speakText(text, voice, rate, volume)) });
-  }
-
   if (route === "/speech/render") {
     const text = readString(body.text, 4_000);
     const voice = readString(body.voice, 80);
     const rate = typeof body.rate === "number" ? body.rate : 1;
-    const rendered = await speech.renderSpeechAudio(text, voice, rate);
-    const audioBody = new ArrayBuffer(rendered.audio.byteLength);
-    new Uint8Array(audioBody).set(rendered.audio);
-    return new Response(audioBody, {
+    // The body is still being generated while it is being sent, so it is passed through as a
+    // stream: cancelling it downstream reaches the engine and stops the rest of the sentence.
+    const spoken = await speech.speakStream(text, voice, rate);
+    return new Response(spoken.samples, {
       status: 200,
       headers: {
-        "Content-Type": "audio/aiff",
+        "Content-Type": "application/octet-stream",
         "Cache-Control": "no-store",
-        "X-Jarvis-Voice": encodeURIComponent(rendered.voice),
+        "X-Jarvis-Sample-Rate": String(spoken.sampleRate),
+        "X-Jarvis-Voice": encodeURIComponent(spoken.voice),
       },
     });
   }
