@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { pipeline } from "node:stream/promises";
 import { assets } from "../../.desktop-build/assets.generated.mjs";
 import worker from "../../dist/server/index.js";
 import { handleLocalActionRequest, isLocalActionRequest } from "../actions/api";
@@ -102,11 +105,25 @@ async function toWebRequest(request: IncomingMessage, port: number) {
   });
 }
 
+/**
+ * Streams rather than buffers. A spoken answer is still being generated while it is being
+ * sent, and collecting it first would put the whole synthesis time in front of the first
+ * word. Closing the connection propagates back through the pipeline and stops the engine.
+ */
 async function sendResponse(response: Response, target: ServerResponse) {
   target.statusCode = response.status;
   target.statusMessage = response.statusText;
   response.headers.forEach((value, name) => target.setHeader(name, value));
-  target.end(Buffer.from(await response.arrayBuffer()));
+  if (!response.body) {
+    target.end();
+    return;
+  }
+  try {
+    await pipeline(Readable.fromWeb(response.body as NodeReadableStream), target);
+  } catch {
+    // The client went away mid-answer, which is what an interruption looks like from here.
+    target.destroy();
+  }
 }
 
 loadRuntimeEnvironment();
