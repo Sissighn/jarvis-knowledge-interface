@@ -5,6 +5,9 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { loadEnvFile } from "node:process";
 import { resolve } from "node:path";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { pipeline } from "node:stream/promises";
 import { handleLocalActionRequest, isLocalActionRequest } from "../actions/api";
 import { handleKnowledgeRequest, isKnowledgeRequest } from "./api";
 import { indexerPort } from "./config";
@@ -55,7 +58,9 @@ const server = createServer(async (incoming, response) => {
       : await handleKnowledgeRequest(request);
     response.statusCode = result.status;
     result.headers.forEach((value, name) => response.setHeader(name, value));
-    response.end(Buffer.from(await result.arrayBuffer()));
+    // Streamed, because a spoken answer is generated while it is being sent.
+    if (result.body) await pipeline(Readable.fromWeb(result.body as NodeReadableStream), response);
+    else response.end();
   } catch (error) {
     console.error("Knowledge indexer request failed", error instanceof Error ? error.message : error);
     response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
