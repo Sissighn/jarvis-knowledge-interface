@@ -12,10 +12,13 @@ import { CommandCenter } from "./CommandCenter";
 import { KnowledgePanels } from "./KnowledgePanels";
 import { MorningBriefing } from "./MorningBriefing";
 import { NotionSetupDialog } from "./NotionSetupDialog";
+import { TaskCalendar } from "./TaskCalendar";
 import { TechVocabularyCarousel } from "./TechVocabularyCarousel";
+import { TodoBoard } from "./TodoBoard";
 import { VoiceAssistant } from "./VoiceAssistant";
 import { useJarvisData } from "../hooks/useJarvisData";
 import { useKnowledgeIndex } from "../hooks/useKnowledgeIndex";
+import { useTodos } from "../hooks/useTodos";
 import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import type { ConceptDetail, ConceptNode, CoreState, NotionStatus, ViewMode } from "../types";
 
@@ -44,6 +47,7 @@ export function JarvisInterface() {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [loadedDetail, setLoadedDetail] = useState<{ conceptId: string; detail: ConceptDetail | null }>({
     conceptId: "",
@@ -181,8 +185,16 @@ export function JarvisInterface() {
   }, []);
 
   const assistant = useVoiceAssistant();
+  const todos = useTodos();
   // The microphone drives the spoken assistant, the text field stays on Notion knowledge.
   const state: CoreState = assistant.phase === "idle" ? queryState : assistant.phase;
+
+  // A spoken "hak das ab" writes into the same list the panel shows, so it reads itself back.
+  const refreshTodos = todos.refresh;
+  const todoStepCount = assistant.steps.filter((step) => step.name.startsWith("todo_")).length;
+  useEffect(() => {
+    if (todoStepCount) refreshTodos();
+  }, [todoStepCount, refreshTodos]);
 
   const selectCategory = (category: string) => {
     const node = nodes.find((candidate) => candidate.group === category && candidate.kind === "concept");
@@ -203,11 +215,16 @@ export function JarvisInterface() {
       ? "SPRACHE WIRD TRANSKRIBIERT"
       : state === "speaking" ? "ICH ANTWORTE DIR" : state === "thinking" ? "ICH VERBINDE WISSEN" : "SYSTEM BEREIT";
   const conceptCount = nodes.filter((node) => node.kind === "concept").length;
+  const tasksCopy = todos.counts.overdue
+    ? `${todos.counts.overdue} ÜBERFÄLLIG · ${todos.counts.open} OFFEN`
+    : todos.counts.open
+      ? `${todos.counts.open} OFFEN · ${todos.counts.today} HEUTE`
+      : "KEINE OFFENEN AUFGABEN";
   // Closing keeps the canvas mounted so the graph layout, zoom and trails survive.
   const closeSetup = useCallback(() => setSetupOpen(false), []);
 
   return (
-    <main className="jarvis-shell">
+    <main className={`jarvis-shell view-${mode}`}>
       <div className="grid-noise" aria-hidden="true" />
       <AppHeader
         weather={weather}
@@ -245,13 +262,13 @@ export function JarvisInterface() {
           highlightedNodeIds={highlightedNodeIds}
           onSelect={selectNode}
         />
-        {mode === "core" && (
+        {mode !== "map" && (
           <div className={`core-status state-${state}`}>
             <span>{statusText}</span>
             <i />
           </div>
         )}
-        {mode === "core" && (
+        {mode !== "map" && (
           <div className="core-copy">
             <span>{state === "listening"
               ? "SPRICH EINFACH LOS · STOPP WENN DU FERTIG BIST"
@@ -259,7 +276,9 @@ export function JarvisInterface() {
                 ? "WHISPER WANDELT DEINE AUFNAHME IN TEXT UM"
                 : state === "speaking"
                   ? "TIPPE AUF DAS MIKROFON, UM MICH ZU UNTERBRECHEN"
-                  : state === "thinking" ? "MUSTER WERDEN ANALYSIERT" : "DEIN WISSEN. VERBUNDEN."}</span>
+                  : state === "thinking"
+                    ? "MUSTER WERDEN ANALYSIERT"
+                    : mode === "tasks" ? tasksCopy : "DEIN WISSEN. VERBUNDEN."}</span>
           </div>
         )}
       </section>
@@ -288,9 +307,27 @@ export function JarvisInterface() {
         />
       ) : null}
 
+      <TodoBoard
+        visible={mode === "tasks"}
+        todos={todos}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+      />
+
+      <TaskCalendar
+        visible={mode === "tasks"}
+        todos={todos.todos}
+        now={todos.now}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+      />
+
       <nav className="mode-switcher" aria-label="Ansicht wechseln">
         <button className={mode === "core" ? "active" : ""} onClick={() => setMode("core")}><i /> CORE</button>
         <button className={mode === "map" ? "active" : ""} onClick={() => setMode("map")}><i /> MAP</button>
+        <button className={mode === "tasks" ? "active" : ""} onClick={() => setMode("tasks")}>
+          <i /> TASKS{todos.counts.overdue ? ` · ${todos.counts.overdue}` : ""}
+        </button>
       </nav>
 
       <CommandCenter
