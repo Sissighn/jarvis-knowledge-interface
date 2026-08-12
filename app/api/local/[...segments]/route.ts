@@ -4,6 +4,8 @@
  * Mac to act on at all.
  */
 const FORWARDED_HEADERS = ["content-type", "accept"];
+/** The spoken answer arrives as raw samples, and the interface needs to know their rate. */
+const RETURNED_HEADERS = ["x-jarvis-sample-rate", "x-jarvis-voice"];
 
 function localBaseUrl() {
   return process.env.JARVIS_INDEXER_URL?.trim().replace(/\/$/, "") ?? "";
@@ -36,13 +38,16 @@ async function proxy(request: Request) {
       headers,
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
     });
-    return new Response(await response.arrayBuffer(), {
-      status: response.status,
-      headers: {
-        "Content-Type": response.headers.get("content-type") ?? "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
+    const returned = new Headers({
+      "Content-Type": response.headers.get("content-type") ?? "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
     });
+    for (const name of RETURNED_HEADERS) {
+      const value = response.headers.get(name);
+      if (value) returned.set(name, value);
+    }
+    // Passed through as a stream: a spoken answer is still being generated while it is sent.
+    return new Response(response.body, { status: response.status, headers: returned });
   } catch {
     return Response.json(
       { error: "Die lokale Aktionsschicht läuft gerade nicht.", code: "actions_unavailable" },
