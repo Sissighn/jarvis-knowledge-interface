@@ -1,3 +1,4 @@
+import { openExternalUrl } from "@/features/desktop/links";
 import type { KnowledgeAnswer } from "@/features/knowledge/answer";
 
 type KnowledgeAnswerPanelProps = {
@@ -24,6 +25,11 @@ export function KnowledgeAnswerPanel({ answer, connected, onClose }: KnowledgeAn
         href={source.notionUrl || undefined}
         target="_blank"
         rel="noreferrer"
+        onClick={(event) => {
+          if (!source.notionUrl) return;
+          event.preventDefault();
+          void openExternalUrl(source.notionUrl);
+        }}
         aria-label={`Quelle ${citation}: ${source.sourceTitle}`}
         title={`${source.sourceTitle}${source.headingPath ? ` · ${source.headingPath}` : ""}`}
       >
@@ -50,7 +56,16 @@ export function KnowledgeAnswerPanel({ answer, connected, onClose }: KnowledgeAn
               </div>
             </div>
             {source.notionUrl ? (
-              <a href={source.notionUrl} target="_blank" rel="noreferrer" aria-label={`${source.sourceTitle} in Notion öffnen`}>
+              <a
+                href={source.notionUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl(source.notionUrl);
+                }}
+                aria-label={`${source.sourceTitle} in Notion öffnen`}
+              >
                 ↗
               </a>
             ) : null}
