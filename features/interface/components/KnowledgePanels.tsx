@@ -1,3 +1,4 @@
+import { openExternalUrl } from "@/features/desktop/links";
 import type { ConceptDetail, ConceptNode, KnowledgeCoverage, SyncProgress, ViewMode } from "../types";
 
 type KnowledgePanelsProps = {
@@ -129,7 +130,15 @@ export function KnowledgePanels({
                       {occurrence.headingPath ? <small>{occurrence.headingPath}</small> : null}
                       <p>{occurrence.snippet}</p>
                       {occurrence.notionUrl ? (
-                        <a href={occurrence.notionUrl} target="_blank" rel="noreferrer">
+                        <a
+                          href={occurrence.notionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void openExternalUrl(occurrence.notionUrl);
+                          }}
+                        >
                           {occurrence.blockId ? "ZUM BLOCK ↗" : "IN NOTION ÖFFNEN ↗"}
                         </a>
                       ) : null}
@@ -144,7 +153,7 @@ export function KnowledgePanels({
         {!isSystemNode && !occurrenceGroups.length && !detailLoading && selectedNode.notionUrl ? (
           <button
             className="text-action"
-            onClick={() => window.open(selectedNode.notionUrl, "_blank", "noopener,noreferrer")}
+            onClick={() => void openExternalUrl(selectedNode.notionUrl)}
           >
             IN NOTION ÖFFNEN <span>↗</span>
           </button>
