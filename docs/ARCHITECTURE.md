@@ -70,6 +70,7 @@ data and snippets, never the integration token.
 | --- | --- |
 | `~/Library/Application Support/com.sissighn.jarvis/knowledge-index.sqlite3` | production index |
 | `.jarvis-dev/knowledge-index.sqlite3` | development index (git-ignored) |
+| `<same directory>/todos.json` | the to-do list, owner-only and written through a temporary file |
 
 The index runs on `node:sqlite` with WAL, foreign keys, a busy timeout, `PRAGMA optimize`, and
 numbered idempotent migrations tracked in `schema_version`. It stores stable database/data-source
@@ -117,7 +118,7 @@ desktop:  microphone ──► Rust capture ──► WAV ───────�
                                           /api/speech/transcribe
                                                      │
                                                      ▼
-                                    local whisper.cpp + large-v3-turbo
+                                    local whisper.cpp + large-v3      
                                                      │
                                                      ▼
                                               voice assistant turn
@@ -126,6 +127,49 @@ desktop:  microphone ──► Rust capture ──► WAV ───────�
 Two capture paths exist because WKWebView only exposes `navigator.mediaDevices` in a secure context, and the packaged window is served over loopback HTTP. The app therefore captures natively and produces the WAV file itself; both paths end in the same transcription route, so error handling and limits stay in one place. Tauri classifies the loopback window as a remote origin, so the capture commands are reachable only through an explicit app permission in `src-tauri/permissions/` referenced by the window capability.
 
 Recording never stops because of silence. Audio is held in browser memory for the active session, sent only to the loopback transcription service, and discarded after the transcript returns. The transcript reaches the voice assistant; typed knowledge questions stay a separate, explicit action.
+
+The answer travels the same way back out:
+
+```text
+answer text ──► /api/local/speech/render ──► local voice service ──► Piper or Qwen3-TTS
+                                                     │
+                          float32 samples, chunk by chunk while generating
+                                                     ▼
+                                    Web Audio, scheduled back to back
+```
+
+Nothing waits for a finished file. Each chunk is scheduled directly after the previous one on
+the audio clock, so playback starts about half a second in and stays gapless as long as
+generation keeps ahead of it, which both engines do on Apple Silicon. Cancelling the stream is
+how an interruption reaches the engine: the service sees the closed connection and stops.
+
+## Task flow
+
+```text
+TASKS view ──┐                                    ┌──► to-do panel (left rail)
+             ├──► /api/local/todos/* ──► todos.json ──► month calendar (right rail)
+voice turn ──┘            │                       └──► deadline notifications
+                          │
+                          └──► explicit request only ──► Google Calendar event
+```
+
+The list is one owner-only JSON file next to the knowledge index, and both writers go through
+the same action layer, so a task added by voice and a task added by hand are the same record
+rather than two lists that drift apart. The panel re-reads the file after every change and after
+every assistant turn that touched a to-do.
+
+Order is a rule, not a preference: a missed deadline sorts above everything and is the only thing
+drawn in red, remaining dated work follows in calendar order, and a task without a date can never
+become overdue — it simply waits until it is checked off. The important flag only reorders inside
+its own group, because a marked task must not push a deadline that is actually running out out of
+sight. Checking something off is reversible and moves it into a collapsed `ERLEDIGT` section;
+deleting is not, so it passes the same confirmation gate as emptying the trash.
+
+Spoken references are approximate. "Hak den Urlaub ab" has to reach "Urlaub planen" without
+checking off the wrong task, so `features/todos/matching.ts` scores every candidate, searches the
+sub-tasks as well, prefers open work over finished work, and refuses everything below the
+threshold instead of guessing. A due date is never invented: a task that names no time keeps
+none, and the calendar is only written when the user asks for it by name.
 
 ## Assistant flow
 
@@ -143,7 +187,7 @@ transcript ──► /api/assistant/chat ──► Ollama with the tool catalogu
                        └──────────────────────────────────┘
                                                 │
                             no further tool call ▼
-                                        spoken answer via macOS voices
+                                        spoken answer via the local voice service
 ```
 
 The loop runs in the browser, like the knowledge flow, because only the browser can reach every boundary: the worker routes for model and dashboard data, and the local action layer for this Mac. It ends after at most three tool rounds and never ends silently; without a final sentence from the model, the last tool result becomes the spoken answer.
@@ -156,13 +200,14 @@ A third boundary sits below the catalogue: capability, not wording, decides what
 
 | Boundary | Responsibilities |
 | --- | --- |
-| React client | interaction, Canvas rendering, live sync status, concept detail, session conversation context, answer presentation, speech controls, preferences |
+| React client | interaction, Canvas rendering, live sync status, concept detail, session conversation context, answer presentation, speech controls, task panel and month calendar, deadline notifications, preferences |
 | Canvas renderers | one shared visual language in `features/interface/renderers/neural-style.ts`; the core sphere and the knowledge map compose the same additive ink, filaments, trails, links, points, and halo |
 | Next.js API routes | input validation, Ollama, Whisper, and explicit Notion-write boundaries, indexer proxying in development, error mapping, cache controls |
 | Local indexer | Notion crawl, SQLite index, concept extraction, embeddings, relation building, hybrid retrieval |
-| Local action layer | allowlisted macOS commands, Spotify and Google PKCE logins, calendar and read-only mail access, browser searches, loopback origin check, and the second confirmation gate for irreversible and writing actions |
+| Local action layer | allowlisted macOS commands, Spotify and Google PKCE logins, calendar and read-only mail access, the to-do list, browser searches, loopback origin check, and the second confirmation gate for irreversible and writing actions |
 | Feature server modules | local language and speech models, Notion connection, feeds, and weather access |
-| Pure feature modules | chunking, concept normalization, relation math, ranking, layout, and domain types |
+| Local voice service | the two speech engines, resident in memory, streaming audio while it is generated |
+| Pure feature modules | chunking, concept normalization, relation math, ranking, layout, task ordering, deadline wording, and domain types |
 | Worker | vinext request handling and image optimization |
 | Desktop sidecar | self-contained Node runtime that serves the built worker and static assets on loopback |
 | Tauri shell | window lifecycle, menu bar, launch at login, global shortcut, notifications, and child-process ownership |
@@ -181,12 +226,14 @@ JARVIS.app
    │        │                                         ▼
    │        │                                shared React + API application
    │        │
-   │        └──► local whisper-server when no existing service is active
+   │        ├──► local whisper-server when no existing service is active
+   │        │
+   │        └──► local voice service at 127.0.0.1:8179 (Piper, Qwen3-TTS via MLX)
    │
    └──► existing Ollama service at 127.0.0.1:11434
 ```
 
-The desktop server contains the vinext worker and generated client assets, but not secrets, Notion data, or model weights. Runtime configuration and the speech-model reference are prepared in the user's macOS Application Support directory. The window loads only the fixed loopback origin, and its native capability grants only core Tauri access plus notifications; shell, autostart, tray, and shortcut operations stay in Rust.
+The desktop server contains the vinext worker and generated client assets, but not secrets, Notion data, or model weights. Runtime configuration, the speech-model reference, and the voice environment are prepared in the user's macOS Application Support directory. The window loads only the fixed loopback origin, and its native capability grants only core Tauri access plus notifications; shell, autostart, tray, and shortcut operations stay in Rust.
 
 The Tauri process owns every child it starts and terminates those children during a full app exit. Closing the main window only hides it so the global shortcut and menu bar remain useful.
 
@@ -194,6 +241,7 @@ The Tauri process owns every child it starts and terminates those children durin
 
 - unit tests cover chunking, concept and navigation-title filtering, alias merging, relation evidence, edge limits, SQLite migrations and rollback, a full stubbed sync of a course workspace, Notion crawling, hybrid retrieval, generated-answer grounding, session conversation context, briefing freshness, daily vocabulary rotation, and map viewport, interaction, and rendering behaviour
 - assistant tests cover the tool catalogue and its argument coercion, the tool-calling loop against a scripted model, both confirmation paths, and the action layer's origin check, confirmation gate, allowlist, and home-directory boundary
+- task tests cover urgency and ordering, spoken task matching, German deadline wording, the month grid, reminder selection, and a full add–subtask–check-off–delete round trip against the real action layer
 - TypeScript strict mode validates contracts across feature boundaries
 - ESLint covers React, Next.js, and TypeScript conventions
 - integration tests run against the built worker and verify SSR plus the Notion credential boundary
