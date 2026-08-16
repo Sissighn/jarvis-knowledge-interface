@@ -24,6 +24,7 @@ mod voice;
 
 const SERVER_PORT: u16 = 4317;
 const SPEECH_PORT: u16 = 8178;
+const VOICE_PORT: u16 = 8179;
 /// Apple silicon first, Intel second; both are prepended to whatever the app inherited.
 const HOMEBREW_BIN_PATHS: &str = "/opt/homebrew/bin:/usr/local/bin";
 const SPEECH_CHECK_INTERVAL: Duration = Duration::from_secs(10);
@@ -34,6 +35,7 @@ const GLOBAL_SHORTCUT: &str = "CommandOrControl+Shift+J";
 struct RuntimeProcesses {
     server: Mutex<Option<CommandChild>>,
     speech: Mutex<Option<SystemChild>>,
+    voice: Mutex<Option<SystemChild>>,
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
@@ -114,38 +116,49 @@ fn application_data_directory(app: &tauri::App) -> tauri::Result<PathBuf> {
     Ok(directory)
 }
 
-fn speech_service_is_reachable() -> bool {
+fn service_is_reachable(port: u16) -> bool {
     TcpStream::connect_timeout(
-        &SocketAddr::from(([127, 0, 0, 1], SPEECH_PORT)),
+        &SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_millis(200),
     )
     .is_ok()
 }
 
+fn speech_service_is_reachable() -> bool {
+    service_is_reachable(SPEECH_PORT)
+}
+
 /**
- * Keeps the transcription service alive for the whole session. It used to be started once
- * at setup, so any crash or restart of the runtime left voice input dead until the app was
- * restarted by hand.
+ * Keeps a local model service alive for the whole session. These used to be started once at
+ * setup, so any crash or restart of the runtime left voice input — or the spoken answer —
+ * dead until the app was restarted by hand.
  */
-fn supervise_speech_service(app: AppHandle, app_data: PathBuf) {
+fn supervise_service(
+    app: AppHandle,
+    app_data: PathBuf,
+    port: u16,
+    label: &'static str,
+    spawn: fn(&PathBuf) -> Option<SystemChild>,
+    slot_of: fn(&RuntimeProcesses) -> &Mutex<Option<SystemChild>>,
+) {
     thread::spawn(move || {
         loop {
             thread::sleep(SPEECH_CHECK_INTERVAL);
-            if speech_service_is_reachable() {
+            if service_is_reachable(port) {
                 continue;
             }
             let Some(processes) = app.try_state::<RuntimeProcesses>() else {
                 continue;
             };
-            let Ok(mut slot) = processes.speech.lock() else {
+            let Ok(mut slot) = slot_of(&processes).lock() else {
                 continue;
             };
             // Reap the previous child so a dead process cannot linger as a zombie.
             if let Some(child) = slot.as_mut() {
                 let _ = child.try_wait();
             }
-            log::warn!("The local speech service is not reachable, starting it again");
-            *slot = spawn_speech_service(&app_data);
+            log::warn!("The local {label} service is not reachable, starting it again");
+            *slot = spawn(&app_data);
             drop(slot);
             // Loading the model takes a moment before the port accepts connections.
             thread::sleep(SPEECH_STARTUP_GRACE);
@@ -159,7 +172,7 @@ fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
         return None;
     }
 
-    let model = app_data.join("models/whisper/ggml-large-v3-turbo-q5_0.bin");
+    let model = app_data.join("models/whisper/ggml-large-v3-q5_0.bin");
     if !model.is_file() {
         log::warn!("Desktop Whisper model is missing at {}", model.display());
         return None;
@@ -217,9 +230,14 @@ fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
       "de",
       "--threads",
       "6",
+      // Greedy decoding is what makes Whisper invent plausible German out of an unclear word.
+      "--beam-size",
+      "5",
       "--convert",
+      // Keep in sync with scripts/start-whisper-server.mjs and the per-request prompt in
+      // features/speech/server/whisper.ts. Names are what the model cannot guess.
       "--prompt",
-      "JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning",
+      "Setayesh, JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning",
     ])
     .stdin(Stdio::null())
     .stdout(output)
@@ -232,6 +250,65 @@ fn spawn_speech_service(app_data: &PathBuf) -> Option<SystemChild> {
       None
     }
   }
+}
+
+/// Starts the service behind the spoken answers. Both of its engines are Python and both keep
+/// their model resident, so this runs for the session instead of once per sentence.
+fn spawn_voice_service(app_data: &PathBuf) -> Option<SystemChild> {
+    if service_is_reachable(VOICE_PORT) {
+        log::info!("Using the existing local voice service on port {VOICE_PORT}");
+        return None;
+    }
+
+    let home = app_data.join("voice");
+    let python = home.join("venv/bin/python3");
+    let service = home.join("voice-server.py");
+    if !python.is_file() || !service.is_file() {
+        log::warn!(
+            "The voice environment is missing at {}. Run npm run setup:voice.",
+            home.display()
+        );
+        return None;
+    }
+
+    // Piper phonemises German through espeak-ng, whose data comes from Homebrew, and a bundled
+    // app inherits neither the Homebrew prefix on PATH nor a usable working directory.
+    let search_path = match std::env::var("PATH") {
+        Ok(inherited) => format!("{HOMEBREW_BIN_PATHS}:{inherited}"),
+        Err(_) => HOMEBREW_BIN_PATHS.to_string(),
+    };
+
+    // A child that dies into `/dev/null` is invisible, and a missing model looks exactly like a
+    // service that never came up. A file cannot fill up a pipe, so this is safe to leave open.
+    let (output, errors) = match fs::File::create(home.join("voice-server.log")) {
+        Ok(file) => match (file.try_clone(), file) {
+            (Ok(first), second) => (Stdio::from(first), Stdio::from(second)),
+            _ => (Stdio::null(), Stdio::null()),
+        },
+        Err(error) => {
+            log::warn!("Could not open the voice log: {error}");
+            (Stdio::null(), Stdio::null())
+        }
+    };
+
+    match SystemCommand::new(python)
+        .current_dir(&home)
+        .env("PATH", search_path)
+        .env("VOICE_PORT", VOICE_PORT.to_string())
+        .env("VOICE_MODELS_DIR", home.join("voices"))
+        .env("ESPEAK_DATA_PATH", "/opt/homebrew/share")
+        .arg(service)
+        .stdin(Stdio::null())
+        .stdout(output)
+        .stderr(errors)
+        .spawn()
+    {
+        Ok(child) => Some(child),
+        Err(error) => {
+            log::warn!("Could not start the local voice service: {error}");
+            None
+        }
+    }
 }
 
 fn spawn_desktop_server(
@@ -301,6 +378,12 @@ fn stop_runtime_processes(app: &AppHandle) {
                 let _ = child.wait();
             }
         }
+        if let Ok(mut voice) = processes.voice.lock() {
+            if let Some(mut child) = voice.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
     }
 }
 
@@ -362,8 +445,25 @@ pub fn run() {
                     .speech
                     .lock()
                     .expect("speech process lock poisoned") = spawn_speech_service(&app_data);
+                *processes.voice.lock().expect("voice process lock poisoned") =
+                    spawn_voice_service(&app_data);
                 reveal_when_server_is_ready(app.handle().clone());
-                supervise_speech_service(app.handle().clone(), app_data.clone());
+                supervise_service(
+                    app.handle().clone(),
+                    app_data.clone(),
+                    SPEECH_PORT,
+                    "speech",
+                    spawn_speech_service,
+                    |processes| &processes.speech,
+                );
+                supervise_service(
+                    app.handle().clone(),
+                    app_data.clone(),
+                    VOICE_PORT,
+                    "voice",
+                    spawn_voice_service,
+                    |processes| &processes.voice,
+                );
             }
             app.manage(processes);
             Ok(())
