@@ -9,6 +9,7 @@ import {
   deleteStep,
   deleteTodo,
   loadTodos,
+  moveTodo,
   patchTodo,
   sendTodoToCalendar,
   setStepDone,
@@ -17,7 +18,7 @@ import {
   type TodoPatchInput,
 } from "@/features/todos/client";
 import { dueSentence } from "@/features/todos/format";
-import { todoCategories, todoCounts, wallClockNow } from "@/features/todos/ordering";
+import { moveTodoTo, todoCategories, todoCounts, wallClockNow } from "@/features/todos/ordering";
 import { pendingReminders, reminderKey, shiftWallClock } from "@/features/todos/reminders";
 import type { TodoCounts, TodoItem } from "@/features/todos/types";
 
@@ -138,6 +139,14 @@ export function useTodos() {
   const remove = useCallback((id: string) => run(id, () => deleteTodo(id)), [run]);
   const removeStep = useCallback((id: string, stepId: string) => run(id, () => deleteStep(id, stepId)), [run]);
   const clearCompleted = useCallback(() => run("completed", () => clearCompletedTodos()), [run]);
+  /**
+   * A dragged card must sit in its new place the moment it is dropped, so the move is shown
+   * first and written afterwards; the read-back then confirms it against the stored list.
+   */
+  const reorder = useCallback((id: string, targetId: string, place: "before" | "after") => {
+    setTodos((current) => moveTodoTo(current, id, targetId, place));
+    return run("order", () => moveTodo(id, targetId, place));
+  }, [run]);
   const toCalendar = useCallback((id: string) => run(id, () => sendTodoToCalendar(id)), [run]);
 
   // Deadlines are announced natively; in the browser the check runs and stays silent.
@@ -178,6 +187,7 @@ export function useTodos() {
     remove,
     removeStep,
     clearCompleted,
+    reorder,
     toCalendar,
     clearError: useCallback(() => setError(null), []),
   };
