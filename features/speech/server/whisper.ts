@@ -2,7 +2,12 @@
 import type { SpeechStatus, SpeechTranscript } from "../types";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8178";
-const DEFAULT_MODEL = "large-v3-turbo-q5_0";
+/**
+ * The turbo variant distils the decoder down to four layers, which it pays for on everything
+ * that is not English. German dictation of names and technical terms is exactly that case, so
+ * the full model is worth its roughly doubled transcription time.
+ */
+const DEFAULT_MODEL = "large-v3-q5_0";
 const STATUS_TIMEOUT_MS = 2_000;
 const TRANSCRIPTION_TIMEOUT_MS = 180_000;
 
@@ -59,7 +64,8 @@ export async function transcribeAudio(audio: File): Promise<SpeechTranscript> {
   body.append("language", process.env.WHISPER_LANGUAGE?.trim() || "de");
   body.append("temperature", "0.0");
   body.append("temperature_inc", "0.2");
-  body.append("prompt", "JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning");
+  // Keep in sync with the service default in scripts/start-whisper-server.mjs.
+  body.append("prompt", "Setayesh, JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning");
 
   const response = await timedFetch(`${baseUrl}/inference`, { method: "POST", body }, TRANSCRIPTION_TIMEOUT_MS);
   const payload = await response.json().catch(() => ({})) as { text?: unknown; error?: unknown };
