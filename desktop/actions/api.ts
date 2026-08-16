@@ -522,7 +522,7 @@ async function handleTodoRoute(route: string, body: Record<string, unknown>) {
     const before = todos.getTodo(id, query);
     const updated = todos.updateTodo(before.id, "", {
       ...(body.title === undefined ? {} : { title: body.title }),
-      ...(body.due === undefined ? {} : { due: body.due }),
+      ...(body.due === undefined ? {} : { due: body.due, exact: body.exact === true }),
       ...(body.category === undefined ? {} : { category: body.category }),
       ...(body.important === undefined ? {} : { important: body.important }),
     });
@@ -539,6 +539,16 @@ async function handleTodoRoute(route: string, body: Record<string, unknown>) {
         ? `„${updated.title}“ ist jetzt fällig ${when}.${orphan}`
         : `„${updated.title}“ hat jetzt keine Frist mehr.${orphan}`;
     return json({ ok: true, summary, todo: updated, now });
+  }
+
+  if (route === "/todos/reorder") {
+    const moved = todos.moveTodo(
+      id,
+      query,
+      readString(body.targetId, 80),
+      body.place === "after" ? "after" : "before",
+    );
+    return json({ ok: true, summary: `„${moved.title}“ steht jetzt an einer anderen Stelle.`, todo: moved });
   }
 
   if (route === "/todos/remove-step") {
