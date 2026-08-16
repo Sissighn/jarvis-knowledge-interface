@@ -8,7 +8,17 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "n
 import { resolve } from "node:path";
 import { dueSentence } from "../../features/todos/format";
 import { findTodo, findTodoOrStep } from "../../features/todos/matching";
-import { dueTime, orderTodos, todoCounts, todoUrgency, wallClockNow } from "../../features/todos/ordering";
+import {
+  dueTime,
+  manualOrder,
+  moveTodoTo,
+  orderTodos,
+  seedOrder,
+  todoCounts,
+  todoUrgency,
+  wallClockNow,
+  withPositions,
+} from "../../features/todos/ordering";
 import type { TodoItem, TodoStep } from "../../features/todos/types";
 import { databaseDirectory } from "../indexer/config";
 import { localTimeZone } from "./config";
@@ -59,7 +69,7 @@ function readStep(value: unknown): TodoStep | null {
 }
 
 /** A stored record is user data that a future version may have written differently. */
-function readTodo(value: unknown): TodoItem | null {
+function readTodo(value: unknown, index: number): TodoItem | null {
   if (!value || typeof value !== "object") return null;
   const entry = value as Partial<TodoItem>;
   const title = readString(entry.title, MAX_TITLE);
@@ -76,6 +86,8 @@ function readTodo(value: unknown): TodoItem | null {
     due: normalizeDue(entry.due),
     steps,
     done: entry.done === true,
+    // A list written before hand-sorting existed keeps the order it was stored in.
+    position: typeof entry.position === "number" && Number.isFinite(entry.position) ? entry.position : index,
     createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
     completedAt: typeof entry.completedAt === "string" ? entry.completedAt : "",
     calendarEventId: readString(entry.calendarEventId, 200),
@@ -91,12 +103,20 @@ function normalizeDue(value: unknown) {
   return "";
 }
 
+/** Always in the hand-made order, so the stored array and the positions tell the same story. */
 export function readTodos(): TodoItem[] {
   try {
     const parsed: unknown = JSON.parse(readFileSync(storePath(), "utf8"));
     const list = parsed as Partial<StoredList>;
     if (!Array.isArray(list.todos)) return [];
-    return list.todos.map(readTodo).filter((todo): todo is TodoItem => Boolean(todo)).slice(0, MAX_TODOS);
+    const stored = list.todos
+      .map((entry, index) => readTodo(entry, index))
+      .filter((todo): todo is TodoItem => Boolean(todo))
+      .slice(0, MAX_TODOS);
+    // A list written before hand-sorting existed gets its first positions from the deadlines,
+    // so nothing jumps around the first time it is opened.
+    const arranged = list.todos.some((entry) => typeof (entry as Partial<TodoItem>)?.position === "number");
+    return arranged ? manualOrder(stored) : withPositions(seedOrder(stored, nowWallClock()));
   } catch {
     // No list yet, or a file this version cannot read: an empty list is the safe start.
     return [];
@@ -109,7 +129,7 @@ function writeTodos(todos: TodoItem[]) {
   mkdirSync(directory, { recursive: true });
   const target = storePath();
   const temporary = `${target}.tmp`;
-  const payload: StoredList = { version: 1, todos: todos.slice(0, MAX_TODOS) };
+  const payload: StoredList = { version: 1, todos: withPositions(todos.slice(0, MAX_TODOS)) };
   writeFileSync(temporary, JSON.stringify(payload, null, 2), { mode: FILE_MODE });
   chmodSync(temporary, FILE_MODE);
   renameSync(temporary, target);
@@ -170,13 +190,15 @@ export function addTodo(input: NewTodo) {
     due: parseDue(input.due),
     steps,
     done: false,
+    // Renumbered on write; a new task goes in front, so it is visible in its group right away.
+    position: -1,
     createdAt: new Date().toISOString(),
     completedAt: "",
     calendarEventId: "",
     calendarLink: "",
   };
-  writeTodos([...todos, todo]);
-  return todo;
+  const stored = writeTodos([todo, ...todos]);
+  return stored.find((entry) => entry.id === todo.id) ?? todo;
 }
 
 /** Resolves the to-do a spoken sentence names, or explains that it was not found. */
@@ -257,6 +279,11 @@ export type TodoPatch = {
   title?: unknown;
   /** `null` drops the deadline on purpose; anything unreadable is a mistake, not a removal. */
   due?: unknown;
+  /**
+   * The caller named the whole deadline, day and hour, and nothing is carried over from the old
+   * one. The edit form sets it; a spoken "verschieb das auf Freitag" never does.
+   */
+  exact?: unknown;
   category?: unknown;
   important?: unknown;
 };
@@ -288,7 +315,8 @@ export function updateTodo(id: string, query: string, patch: TodoPatch) {
   const todos = readTodos();
   const todo = requireTodo(todos, id, query);
   const title = patch.title === undefined ? todo.title : readString(patch.title, MAX_TITLE) || todo.title;
-  const due = patch.due === undefined ? todo.due : patchedDue(patch.due, todo.due);
+  // An exact deadline has no previous hour to keep: an emptied time field means no time.
+  const due = patch.due === undefined ? todo.due : patchedDue(patch.due, patch.exact === true ? "" : todo.due);
   const updated: TodoItem = {
     ...todo,
     title,
@@ -300,6 +328,21 @@ export function updateTodo(id: string, query: string, patch: TodoPatch) {
   };
   writeTodos(todos.map((entry) => (entry.id === todo.id ? updated : entry)));
   return updated;
+}
+
+/**
+ * Moves a to-do next to another one in the hand-made order. The neighbour is named by id rather
+ * than by a slot number, so a move from a filtered panel lands exactly where it was dropped.
+ * An empty target moves the to-do to the end of the list.
+ */
+export function moveTodo(id: string, query: string, targetId: string, place: "before" | "after") {
+  const todos = readTodos();
+  const todo = requireTodo(todos, id, query);
+  if (targetId && !todos.some((entry) => entry.id === targetId)) {
+    throw new LocalActionError("Die Aufgabe, neben die verschoben werden soll, gibt es nicht mehr.", 404);
+  }
+  const moved = writeTodos(moveTodoTo(todos, todo.id, targetId, place));
+  return moved.find((entry) => entry.id === todo.id) ?? todo;
 }
 
 export function removeTodo(id: string, query: string) {
