@@ -50,18 +50,40 @@ test("offers exactly one German and one English voice", () => {
 });
 
 test("reports the voice that will actually speak", () => {
-  assert.equal(resolveVoice(VOICES, { voiceUri: "", rate: 1, volume: 1 })?.name, "Petra (Premium)");
+  const offered = curatedVoices(VOICES);
+
+  assert.equal(resolveVoice(offered, { voiceUri: "", rate: 1, volume: 1 })?.name, "Petra (Premium)");
   // The offered English voice is honoured.
   assert.equal(
-    resolveVoice(VOICES, { voiceUri: "com.apple.voice.premium.en-US.Ava", rate: 1, volume: 1 })?.name,
+    resolveVoice(offered, { voiceUri: "com.apple.voice.premium.en-US.Ava", rate: 1, volume: 1 })?.name,
     "Ava (Premium)",
   );
   // A voice that is no longer offered falls back to German instead of a novelty voice.
   assert.equal(
-    resolveVoice(VOICES, { voiceUri: "com.apple.eloquence.de-DE.Rocko", rate: 1, volume: 1 })?.name,
+    resolveVoice(offered, { voiceUri: "com.apple.eloquence.de-DE.Rocko", rate: 1, volume: 1 })?.name,
     "Petra (Premium)",
   );
   assert.equal(resolveVoice([], { voiceUri: "", rate: 1, volume: 1 }), null);
+});
+
+/**
+ * The voices of the local speech service carry none of the macOS quality markers, so scoring
+ * them a second time here would silently replace the chosen voice with a system one.
+ */
+test("keeps a chosen voice from the local speech service", () => {
+  const service = [
+    { uri: "thorsten", name: "Thorsten", lang: "de-DE" },
+    { uri: "serena", name: "Serena", lang: "de-DE" },
+    { uri: "vivian", name: "Vivian", lang: "de-DE" },
+  ];
+
+  assert.equal(resolveVoice(service, { voiceUri: "vivian", rate: 1, volume: 1 })?.name, "Vivian");
+  assert.equal(resolveVoice(service, { voiceUri: "", rate: 1, volume: 1 })?.name, "Thorsten");
+  // A setting written when this Mac still spoke through `say` names a voice that is gone.
+  assert.equal(
+    resolveVoice(service, { voiceUri: "Petra (Premium)", rate: 1, volume: 1 })?.name,
+    "Thorsten",
+  );
 });
 
 test("prefers the best installed German voice over the system default", () => {
