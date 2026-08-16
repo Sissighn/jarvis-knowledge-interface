@@ -11,7 +11,12 @@ The following components are installed or downloaded by the user and are not com
 | Ollama | local model runtime | [MIT License](https://github.com/ollama/ollama/blob/main/LICENSE) for the open-source repository |
 | Qwen 3.5 4B for Ollama | local answer generation | the installed `qwen3.5:4b` model reports the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0); verify with `ollama show qwen3.5:4b --license` |
 | whisper.cpp | local speech-to-text runtime | [MIT License](https://github.com/ggml-org/whisper.cpp/blob/master/LICENSE) |
-| Whisper large-v3-turbo Q5 model | local speech recognition weights | distributed by the [whisper.cpp model repository](https://huggingface.co/ggerganov/whisper.cpp); review its model card and upstream terms before redistribution |
+| Whisper large-v3 Q5 model | local speech recognition weights | distributed by the [whisper.cpp model repository](https://huggingface.co/ggerganov/whisper.cpp); review its model card and upstream terms before redistribution |
+| Piper | local speech synthesis runtime | [GPL-3.0](https://github.com/OHF-voice/piper1-gpl/blob/main/COPYING) |
+| Thorsten voice, `de_DE-thorsten-high` | German speech synthesis weights | [CC0-1.0](https://huggingface.co/rhasspy/piper-voices), from the [Thorsten-Voice](https://www.thorsten-voice.de/) dataset |
+| espeak-ng | phonemisation for the Piper voice | [GPL-3.0](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING) |
+| MLX and mlx-audio | speech synthesis runtime on Apple Silicon | [MIT License](https://github.com/ml-explore/mlx/blob/main/LICENSE) |
+| Qwen3-TTS-12Hz-0.6B-CustomVoice | German speech synthesis weights | [Apache-2.0](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice); review its model card and upstream terms before redistribution |
 | FFmpeg | local audio conversion used by the speech runtime | [FFmpeg legal and license information](https://ffmpeg.org/legal.html) |
 | Geist Sans and Geist Mono | bundled interface fonts | [SIL Open Font License 1.1](https://github.com/vercel/geist-font/blob/main/LICENSE.txt) |
 

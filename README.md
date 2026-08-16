@@ -5,7 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-111111?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-111111?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-Qwen_3.5_4B-111111?logo=ollama&logoColor=white)](https://ollama.com/library/qwen3.5)
-[![Whisper](https://img.shields.io/badge/Whisper-large--v3--turbo-111111)](https://github.com/ggml-org/whisper.cpp)
+[![Whisper](https://img.shields.io/badge/Whisper-large--v3-111111)](https://github.com/ggml-org/whisper.cpp)
 [![macOS](https://img.shields.io/badge/macOS-Tauri_2-f2b5d0?logo=apple&logoColor=111111)](https://v2.tauri.app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-f2b5d0.svg)](./LICENSE)
 ![Local first](https://img.shields.io/badge/local--first-yes-f2b5d0)
@@ -40,8 +40,13 @@ JARVIS is designed to reduce information friction without creating another syste
 - local story bookmarks, relevance feedback, and daily browser cache
 - current weather and four-day forecast from Open-Meteo
 - manual-stop audio recording and local Whisper transcription
-- spoken assistant with local function calling for dashboard data, Spotify, Google Calendar, Gmail that can read, summarize, archive, and trash but never send, Chrome searches, and allowlisted macOS actions
-- spoken answers through the macOS system voices with configurable voice, speed, and volume, interruptible at any time
+- spoken assistant with local function calling for dashboard data, the to-do list, Spotify, Google Calendar, Gmail that can read, summarize, archive, and trash but never send, Chrome searches, and allowlisted macOS actions
+- integrated to-do list with sub-tasks, optional deadlines, categories, and an important flag, kept in one local file that voice and panel share
+- missed deadlines sort to the top in red, tasks without a date never expire, and finished work moves into a collapsed `ERLEDIGT` section instead of disappearing
+- interactive month calendar that marks task deadlines next to the connected Google Calendar events and filters the list by day
+- native reminders before a deadline, and the day's open tasks inside the spoken daily summary
+- optional one-way transfer of a dated task into Google Calendar, only on an explicit request and after confirmation
+- spoken answers through local neural voices — one male, two female — with configurable voice, speed, and volume, interruptible at any time
 - explicit confirmation before irreversible actions, enforced again in the local action layer
 - native microphone capture in the app, because the embedded WebView withholds browser recording on loopback
 - native Apple Silicon app bundle powered by Tauri 2
@@ -64,6 +69,7 @@ features/
   interface/                 components, hooks, map viewport and force layout, shared Canvas renderers, and styles
   knowledge/                 concept contracts, chunking, relation math, retrieval, and grounded answers
   speech/                    local whisper.cpp status and transcription bridge
+  todos/                     task contracts, urgency ordering, spoken matching, deadline wording, and reminders
   weather/                   Open-Meteo client and types
 tests/
   unit/                      deterministic domain tests
@@ -89,6 +95,7 @@ See [Architecture](./docs/ARCHITECTURE.md) for the data flows and design decisio
 - Homebrew
 - [Ollama](https://ollama.com/) for natural local answers
 - `whisper-cpp` and `ffmpeg` for high-quality local speech-to-text
+- `espeak-ng` for the phonemes the German neural voice reads
 - an optional Notion internal integration for real workspace data
 
 ### Installation
@@ -99,8 +106,9 @@ cd jarvis-knowledge-interface
 npm install
 cp .env.local.example .env.local
 ollama pull qwen3.5:4b
-brew install whisper-cpp ffmpeg
+brew install whisper-cpp ffmpeg espeak-ng
 npm run setup:speech
+npm run setup:voice
 npm run dev
 ```
 
@@ -108,9 +116,9 @@ Open the local URL printed by the development server. Without Notion credentials
 
 Ollama runs the answer model on the same Mac, so no paid model API or API key is needed. Without Ollama, search and the extractive fallback remain available.
 
-`npm run dev` starts the web interface, the local knowledge indexer, and the local Whisper service. Voice recordings continue until the user presses Stop. JARVIS then transcribes the complete recording locally, places the editable text in the command box, and sends nothing until Enter or the send button is used.
+`npm run dev` starts the web interface, the local knowledge indexer, the local Whisper service, and the local voice service. Voice recordings continue until the user presses Stop. JARVIS then transcribes the complete recording locally, places the editable text in the command box, and sends nothing until Enter or the send button is used.
 
-The downloaded model files use approximately 4 GB in total: about 3.4 GB for Qwen and 574 MB for Whisper, excluding the runtimes and package dependencies. Both models are excluded from Git.
+The downloaded model files use approximately 5.4 GB in total: about 3.4 GB for the answer model, 1.1 GB for Whisper, 114 MB for the Piper voice, and 750 MB for the Qwen3-TTS voices, excluding the runtimes and package dependencies. None of them are in Git.
 
 ## Native macOS app
 
@@ -209,12 +217,12 @@ the map immediately and from the index after the next successful sync.
 
 ## Configure local speech-to-text
 
-JARVIS records audio with the browser `MediaRecorder` API and sends the finished in-memory recording only to the local whisper.cpp service. The default model is the multilingual `large-v3-turbo-q5_0` variant, optimized for a practical balance of accuracy, speed, and memory usage on Apple Silicon.
+JARVIS records audio with the browser `MediaRecorder` API and sends the finished in-memory recording only to the local whisper.cpp service. The default model is the multilingual `large-v3-q5_0` variant. Its distilled `turbo` sibling is roughly twice as fast but pays for the shorter decoder on everything that is not English, which is precisely the German dictation this assistant lives on.
 
 ```dotenv
 WHISPER_BASE_URL=http://127.0.0.1:8178
 WHISPER_PORT=8178
-WHISPER_MODEL_PATH=models/whisper/ggml-large-v3-turbo-q5_0.bin
+WHISPER_MODEL_PATH=models/whisper/ggml-large-v3-q5_0.bin
 WHISPER_LANGUAGE=de
 ```
 
@@ -233,9 +241,23 @@ Voice workflow:
 
 The text field next to the microphone remains the entry point for Notion knowledge questions. If transcription fails, the error remains visible and nothing is sent to a model.
 
+## Tasks and calendar
+
+**TASKS** in the mode switcher opens the third workspace: the to-do list on the left rail, the month on the right, the core between them. Both halves read the same file, and so does the voice assistant — there is one list, not a spoken one and a typed one.
+
+A task carries a title and, optionally, sub-tasks, a deadline, a category, and an important flag. The deadline is genuinely optional: a task without a date never expires and simply waits in `OHNE DATUM` until it is checked off. A task with a date that has passed is the only thing drawn in red and sorted above everything else, and it stays there until it is done. The important flag lifts a task inside its own group only, so a starred idea cannot bury a deadline that is running out today.
+
+Checking something off is reversible. It moves the task into a collapsed `ERLEDIGT` section, which can be reopened or cleaned up on purpose. Deleting is not reversible and therefore asks first — by voice through the confirmation gate, in the panel through a second click on **WIRKLICH LÖSCHEN?**.
+
+The month marks every deadline with a dot, red when it is overdue, next to the events of a connected Google Calendar in grey. Selecting a day filters the list to that day and prefills the date of a new task; **HEUTE** jumps back. Without a Google account the month simply shows the tasks alone.
+
+Deadlines are announced as native notifications thirty minutes before a task with a time, and in the morning for a task that names only a day. A missed announcement is caught up for twelve hours and never repeated for the same deadline; moving the deadline makes it a new one.
+
+The two systems stay separate unless you connect them: a to-do is not an appointment, so JARVIS writes into Google Calendar only when you ask for it by name — *„Trag das auch in meinen Kalender ein“* — or when you press **IN KALENDER** on a dated task. Both paths go through the same confirmation as any other calendar write.
+
 ## Voice assistant
 
-The microphone drives a spoken assistant: Whisper transcribes, a local tool-calling model decides which of the allowlisted functions to run, and the answer is spoken back through the macOS system voices. Everything runs on this Mac and costs nothing per request.
+The microphone drives a spoken assistant: Whisper transcribes, a local tool-calling model decides which of the allowlisted functions to run, and the answer is spoken back through a local neural voice. Everything runs on this Mac and costs nothing per request.
 
 ```text
 microphone → whisper.cpp → Ollama (tool calling) → dashboard data, Spotify, Google, macOS → spoken answer
@@ -249,10 +271,11 @@ microphone → whisper.cpp → Ollama (tool calling) → dashboard data, Spotify
 | Spotify | search and play a track, artist, album, or playlist, pause, resume, next, previous, volume, name the current track |
 | Google Calendar | read the agenda for today, tomorrow, or the next seven days, and create a new appointment after confirmation |
 | Gmail | say how many unread mails are in the inbox, name sender and subject of the newest ones, search by term or by a single day, summarize one mail, archive mails, move mails to the trash — **never send** |
+| To-do list | add a task with or without a deadline, add sub-tasks, read out what is open, due today, or overdue, move a deadline or drop it, check a task or a single sub-task off, reopen it, delete it after confirmation, and put a dated task into Google Calendar when asked |
 | Google Chrome | search for a term in Chrome, open a web address in Chrome |
 | macOS | open an allowlisted program, open a file or folder inside your home directory, set or change the system volume, empty the trash after confirmation |
 
-Ask in plain German, for example *„Wie warm ist es gerade?“*, *„Spiel Bohemian Rhapsody auf Spotify“*, *„Was steht morgen in meinem Kalender?“*, *„Trag am Freitag um 15 Uhr Zahnarzt ein“*, *„Habe ich neue Mails?“*, *„Habe ich am 5. August Mails bekommen?“*, *„Was steht in der Mail von der Bank?“*, *„Archivier die Newsletter“*, *„Such auf Chrome nach dem neuen MacBook“* or *„Fass mir mein Dashboard zusammen“*.
+Ask in plain German, for example *„Wie warm ist es gerade?“*, *„Spiel Bohemian Rhapsody auf Spotify“*, *„Was steht morgen in meinem Kalender?“*, *„Trag am Freitag um 15 Uhr Zahnarzt ein“*, *„Füg zu meiner To-do-Liste hinzu, dass ich einen Urlaub planen muss“*, *„Was steht heute an?“*, *„Verschieb die Steuererklärung auf Freitag“*, *„Hak den Urlaub ab“*, *„Habe ich neue Mails?“*, *„Habe ich am 5. August Mails bekommen?“*, *„Was steht in der Mail von der Bank?“*, *„Archivier die Newsletter“*, *„Such auf Chrome nach dem neuen MacBook“* or *„Fass mir mein Dashboard zusammen“*.
 
 ### Mail is never sent
 
@@ -269,9 +292,32 @@ Summarizing a mail is the only place where text written by someone else enters t
 
 ### Speech output
 
-Answers use the macOS system voices through the browser speech synthesis API, so no additional service or download is needed. Voice, speed, and volume are configurable in the assistant panel and stay in browser storage. Pressing the microphone while JARVIS is talking interrupts it immediately and starts a new recording; **UNTERBRECHEN** only stops the speech.
+Answers are spoken by local neural models, not by the macOS system voices. Even Apple's premium German voices stay audibly synthetic over a longer answer, and Siri's own voices are unavailable to third-party apps through both speech synthesis and `say`.
 
-Voice quality is worth two minutes of setup. A fresh macOS install ships only the compact German voice, which sounds like a decade-old navigation system. Download a **Premium** voice under **System Settings → Accessibility → Spoken Content → System Voice → Manage Voices → German** — Petra, Markus, and Viktor are the natural-sounding ones. The assistant picks the best installed German voice automatically, preferring premium over enhanced over compact, so a downloaded voice is used after the next restart without any configuration. Siri's own voices stay unavailable: Apple does not expose them to third-party apps through either speech synthesis or `say`.
+Three voices are offered, and only three — the picker is not a model browser:
+
+| Voice | Model | Engine |
+| --- | --- | --- |
+| Thorsten | `de_DE-thorsten-high` | [Piper](https://github.com/OHF-voice/piper1-gpl), the only German voice it publishes in its highest tier |
+| Serena | `Qwen3-TTS-12Hz-0.6B-CustomVoice` | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) through [MLX](https://github.com/ml-explore/mlx) |
+| Vivian | `Qwen3-TTS-12Hz-0.6B-CustomVoice` | the same model, its second female voice |
+
+Both engines are Python and both keep their model in memory, so they run in one small loopback
+service (`scripts/voice-server.py`) rather than being started per sentence. The audio is streamed
+while it is still being generated and played chunk by chunk, which puts roughly half a second
+between the finished answer and the first spoken word — Qwen needs several seconds for a long
+answer, but never several seconds of silence. Piper renders faster than that and simply arrives
+sooner.
+
+Voice, speed, and volume are configurable in the assistant panel and stay in browser storage.
+Pressing the microphone while JARVIS is talking interrupts it immediately and starts a new
+recording; **UNTERBRECHEN** only stops the speech. An interruption closes the stream, and the
+service stops generating the rest of the sentence instead of finishing audio nobody will hear.
+
+If the voice service is not prepared, the assistant falls back to the best installed macOS voice
+so a fresh installation is never mute. `npm run setup:voice` is what removes that fallback: it
+creates the Python environment under `~/Library/Application Support/com.sissighn.jarvis/voice/`
+and downloads the three voices.
 
 ### Safety rules
 
@@ -279,6 +325,7 @@ Voice quality is worth two minutes of setup. A fresh macOS install ships only th
 - irreversible actions always ask first, for example *„Der Papierkorb wird endgültig geleert. Fortfahren?“*, and only run after a click or a spoken *ja*
 - writing into the calendar asks the same way and names the appointment first, for example *„Ich trage „Zahnarzt“ am 14.03.2026 um 15:00 Uhr in deinen Google-Kalender ein. Fortfahren?“*
 - an appointment is only created with a real date and time; a missing hour is asked for instead of guessed
+- a task keeps only the deadline you named; checking it off runs without a prompt because it can be undone, deleting it asks first
 - only web addresses with `http` or `https` are opened in Chrome, so no `file:` or `javascript:` address can be reached by voice
 - the action layer independently rejects an unconfirmed irreversible action, regardless of what the model asked for
 - only the functions in `features/assistant/tools.ts` exist; the model cannot invent new ones
@@ -388,6 +435,12 @@ from `.env.local.example` on purpose so the normal setup stays minimal.
 | `JARVIS_SERVER_PORT` | `4317` | loopback port of the packaged sidecar. The Tauri shell passes its own fixed port; values outside 1–65535 fall back to the default. |
 | `JARVIS_WEB_PORT` | unset | binds the vinext dev server to `127.0.0.1` on this port. `npm run desktop:web` uses it to serve the native development window on `4317`. |
 | `WHISPER_SERVER_BIN` | `/opt/homebrew/bin/whisper-server` | path to the `whisper-server` executable, for a non-Homebrew or custom whisper.cpp build |
+| `VOICE_BASE_URL` | `http://127.0.0.1:8179` | address of the local voice service the action layer speaks to |
+| `VOICE_PORT` | `8179` | loopback port the voice service listens on; must match `VOICE_BASE_URL` |
+| `VOICE_HOME` | `~/Library/Application Support/com.sissighn.jarvis/voice` | directory holding the voice environment and its models |
+| `VOICE_PYTHON` | `$VOICE_HOME/venv/bin/python3` | interpreter that carries both voice engines |
+| `VOICE_MODELS_DIR` | `$VOICE_HOME/voices` | directory holding the Piper voice files |
+| `ESPEAK_DATA_PATH` | `/opt/homebrew/share` | parent of `espeak-ng-data`; the published Piper wheel ships an incomplete copy and otherwise looks for a build-time path |
 
 ## Data sources and local processing
 
@@ -398,11 +451,12 @@ from `.env.local.example` on purpose so the normal setup stays minimal.
 | Tech briefing | OpenAI News, GitHub Changelog, Techpresso, Hacker News | server-side aggregation, scoring, and deduplication |
 | Tech vocabulary | curated local catalogue + optional Notion table | deterministic five-term daily rotation; explicit single-row export |
 | Weather | Open-Meteo | server-side fetch with a 30-minute memory cache |
-| Voice input | microphone + local whisper.cpp | MediaRecorder capture and local large-v3-turbo transcription |
+| Voice input | microphone + local whisper.cpp | MediaRecorder capture and local large-v3 transcription |
 | Voice assistant | local Ollama + local action layer | local tool calling, allowlisted functions, confirmation before irreversible actions |
+| To-do list | local `todos.json` | owner-only file next to the index, deterministic urgency ordering, scored spoken matching, native deadline reminders |
 | Spotify control | Spotify Web API | PKCE login on loopback, tokens stored locally with owner-only permissions |
 | Calendar and mail | Google Calendar API and Gmail API | PKCE login on loopback, two scopes only, endpoint allowlist that cannot reach sending, confirmation before every change |
-| Speech output | macOS system voices | browser speech synthesis, no network request |
+| Speech output | local Piper and Qwen3-TTS models | loopback voice service, no network request |
 | Preferences | browser storage | stays on the current device |
 
 Techpresso is an optional source because its public archive endpoint is undocumented. If it changes or becomes unavailable, the other sources and the last daily browser cache continue to work.
@@ -424,11 +478,13 @@ npm run check
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | start the web interface, the local knowledge indexer, and the Whisper service |
+| `npm run dev` | start the web interface, the local knowledge indexer, the Whisper service, and the voice service |
 | `npm run dev:web` | start only the web interface |
 | `npm run dev:indexer` | start only the local knowledge indexer |
 | `npm run dev:speech` | start only the local Whisper service |
-| `npm run setup:speech` | download or verify the ignored 574 MB speech model |
+| `npm run dev:voice` | start only the local voice service |
+| `npm run setup:speech` | download or verify the ignored 1.1 GB speech model |
+| `npm run setup:voice` | prepare the voice environment and download the three voices |
 | `npm run desktop:dev` | run JARVIS inside the native Tauri development window |
 | `npm run desktop:setup` | prepare private desktop configuration and the local speech model |
 | `npm run desktop:check` | format-check and compile-check the native Rust shell |
@@ -466,7 +522,7 @@ npm run check
 - Spotify tokens live in a local file with owner-only permissions, and PKCE means no client secret exists
 - Google access covers calendar events plus reading, archiving, and trashing mail; sending is unreachable through an endpoint allowlist, permanent deletion is not granted, and new events carry no attendees and no invitations
 - Google tokens live in a local file with owner-only permissions and are revoked at Google when you disconnect
-- spoken answers use the macOS system voices without any network request
+- spoken answers are generated by local models without any network request
 - the Notion token stays server-side and is excluded from Git
 - Notion graph access is read-only; the optional glossary action appends only the selected row to its configured table
 - saved and hidden stories remain on the current device
@@ -486,7 +542,7 @@ The Qwen and Whisper capabilities are intentionally local runtime features. A ho
 
 ## Technology
 
-Next.js 16, React 19, TypeScript, Canvas 2D, `node:sqlite` with FTS5, Ollama, Qwen 3.5, EmbeddingGemma, whisper.cpp, Whisper large-v3-turbo, vinext, Cloudflare Workers, the Notion API, Open-Meteo, BM25, reciprocal rank fusion, and cosine similarity.
+Next.js 16, React 19, TypeScript, Canvas 2D, `node:sqlite` with FTS5, Ollama, Qwen 3.5, EmbeddingGemma, whisper.cpp, Whisper large-v3, vinext, Cloudflare Workers, the Notion API, Open-Meteo, BM25, reciprocal rank fusion, and cosine similarity.
 
 ## License
 

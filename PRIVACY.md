@@ -21,7 +21,7 @@ This document describes the data flows implemented by the repository. It is not 
 | To-do list | the task text, its optional sub-tasks, deadline, and category, entered by hand or dictated | stored and read only by the local action layer on this Mac; no task text is sent to any external service. A task reaches Google Calendar only through an explicit request and an additional confirmation, and then only its title and time | tasks remain in `todos.json` next to the knowledge index with owner-only permissions until they are deleted or the file is removed; identifiers of already delivered deadline reminders remain in browser storage |
 | Browser search | a spoken search term or web address | the term becomes a Google search URL and is opened in Google Chrome through `open` with an argument list; only `http` and `https` addresses are accepted | nothing is persisted by JARVIS beyond the browser's own history |
 | macOS actions | the name of an allowlisted program, a path inside the home directory, or a volume value | executed locally through `execFile` with argument lists; irreversible actions run only after an explicit confirmation | nothing is persisted by JARVIS beyond the effect of the action itself |
-| Speech output | the text of the spoken answer and the chosen voice settings | read out locally by the macOS speech synthesis of the browser without a network request | voice, speed, and volume remain in browser storage |
+| Speech output | the text of the spoken answer and the chosen voice settings | sent to the local voice service configured by `VOICE_BASE_URL`, which defaults to loopback, and read out there by local models without a network request; without that service the macOS system voices are used instead | voice, speed, and volume remain in browser storage; the generated audio is played and not persisted |
 | Tech briefing | public articles and local relevance choices | public feeds are fetched server-side; saved and hidden story identifiers are stored in browser storage | feed results are cached temporarily in memory and in the browser; preferences remain until browser site data is cleared |
 | Tech vocabulary | the selected term and its seven explanatory fields | the daily selection is computed locally; only an explicit **ZU NOTION +** action sends that term to the configured Notion table | successful term identifiers remain in browser storage; the exported row remains in Notion until deleted there |
 | Weather | configured location name and coordinates | coordinates are sent to Open-Meteo to retrieve the forecast | the result is cached in server memory for approximately 30 minutes |
@@ -37,7 +37,7 @@ The default application may contact the following services:
 - [OpenAI News](https://openai.com/news/), [GitHub Changelog](https://github.blog/changelog/), [Techpresso](https://www.dupple.com/techpresso), and [Hacker News](https://news.ycombinator.com/) for the public briefing.
 - [Spotify](https://www.spotify.com/) once the voice assistant is connected to an account. Login, search terms, and playback commands are exchanged with Spotify; playback control requires Spotify Premium.
 - [Google](https://www.google.com/) once the voice assistant is connected to a Google account. Calendar events are read and created; mail is read, archived, and trashed under the two scopes listed in `desktop/actions/config.ts`. Opening a search or an address additionally sends the usual browser request to Google or to the destination site.
-- [Hugging Face](https://huggingface.co/) when `npm run setup:speech` downloads the local Whisper model.
+- [Hugging Face](https://huggingface.co/) when `npm run setup:speech` downloads the local Whisper model and when `npm run setup:voice` downloads the three voices.
 - [Ollama](https://ollama.com/) when a model is installed manually. Answer generation itself uses the configured Ollama runtime and defaults to the local device.
 
 Opening a Notion page, news story, or another external link transfers the usual browser request data to that destination. Each external provider processes data under its own terms and privacy policy.
@@ -46,7 +46,7 @@ Opening a Notion page, news story, or another external link transfers the usual 
 
 JARVIS uses `localStorage` for the daily briefing cache, saved or hidden story identifiers, identifiers of vocabulary terms already exported to Notion, and identifiers of deadline reminders that have already been delivered. Indexed Notion content, concepts, and embeddings are never written to browser storage; they exist only in the local SQLite index. It does not set analytics or advertising cookies. Browser storage can be removed through the browser's site-data controls.
 
-The native app uses an embedded WebView with its own site storage. The release build prepares a private runtime copy of `.env.local` and the local speech-model reference in `~/Library/Application Support/com.sissighn.jarvis/`. The copied environment file is created with owner-only file permissions and is not included in the `.app`, DMG, or repository.
+The native app uses an embedded WebView with its own site storage. The release build prepares a private runtime copy of `.env.local`, the local speech-model reference, and the voice service in `~/Library/Application Support/com.sissighn.jarvis/`. The copied environment file is created with owner-only file permissions and is not included in the `.app`, DMG, or repository.
 
 ## Security choices
 
@@ -54,7 +54,7 @@ The native app uses an embedded WebView with its own site storage. The release b
 - the knowledge index is a local SQLite file; hosted builds have no index and answer `desktop_required` for every `/api/knowledge/*` request
 - no Cloudflare D1 or R2 binding exists, and the index directories are excluded from Git
 - Notion graph access is read-only and limited to explicitly shared content; optional update access is used only after an explicit glossary-export click and only for the configured table
-- Ollama and whisper.cpp default to loopback addresses
+- Ollama, whisper.cpp, and the voice service default to loopback addresses
 - the packaged application server listens only on `127.0.0.1`
 - native WebView permissions are limited to Tauri core functionality, notifications, and the three microphone-capture commands for the fixed loopback origin
 - microphone access is declared in the app bundle and granted by macOS itself; recording starts only after a click and never on a timer
