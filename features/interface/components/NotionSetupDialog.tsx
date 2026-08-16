@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { openExternalUrl } from "@/features/desktop/links";
 import type { KnowledgeCoverage, KnowledgeStatus, NotionKnowledgeDatabase, NotionStatus } from "../types";
 
 type Props = {
@@ -146,7 +147,7 @@ export function NotionSetupDialog({
 
         {(error || notionStatus.error || sync?.error) ? <p className="setup-error">{error || notionStatus.error || sync?.error}</p> : null}
         <div className="setup-actions">
-          {!notionStatus.connected ? <button className="secondary-action" onClick={() => window.open("https://www.notion.so/my-integrations", "_blank", "noopener,noreferrer")}>NOTION INTEGRATION ↗</button> : null}
+          {!notionStatus.connected ? <button className="secondary-action" onClick={() => void openExternalUrl("https://www.notion.so/my-integrations")}>NOTION INTEGRATION ↗</button> : null}
           {notionStatus.connected ? <button className="secondary-action" onClick={() => onSync("incremental")} disabled={status?.running}>JETZT AKTUALISIEREN</button> : null}
           <button className="danger-action" onClick={() => { if (!resetArmed) return setResetArmed(true); setResetArmed(false); onResetIndex(); }}>{resetArmed ? "WIRKLICH LÖSCHEN?" : "LOKALEN INDEX NEU AUFBAUEN"}</button>
         </div>
