@@ -134,7 +134,8 @@ export function NeuralCanvas({ state, speechActivity, mode, nodes, edges, select
       vignette.addColorStop(1, "rgba(0,0,0,.44)");
       context.fillStyle = vignette;
       context.fillRect(0, 0, width, height);
-      if (mode === "core") {
+      // Only the map replaces the core; the task workspace keeps the sphere between its rails.
+      if (mode !== "map") {
         const hover = renderCoreFrame({
           context,
           width,
@@ -200,7 +201,7 @@ export function NeuralCanvas({ state, speechActivity, mode, nodes, edges, select
     const rect = event.currentTarget.getBoundingClientRect();
     const localX = event.clientX - rect.left;
     const localY = event.clientY - rect.top;
-    if (mode === "core") {
+    if (mode !== "map") {
       const rotation = rotationRef.current;
       const insideCore = isInsideCore(event);
       pointerRef.current = {
@@ -261,9 +262,9 @@ export function NeuralCanvas({ state, speechActivity, mode, nodes, edges, select
       <canvas
         ref={canvasRef}
         className={`neural-canvas mode-${mode}`}
-        aria-label={mode === "core"
-          ? "Animierter neuronaler Jarvis-Kern"
-          : "Interaktiver Wissensgraph. Ziehen zum Verschieben, Mausrad zum Zoomen."}
+        aria-label={mode === "map"
+          ? "Interaktiver Wissensgraph. Ziehen zum Verschieben, Mausrad zum Zoomen."
+          : "Animierter neuronaler Jarvis-Kern"}
         tabIndex={mode === "map" ? 0 : -1}
         onPointerMove={updatePointer}
         onPointerLeave={(event) => {
