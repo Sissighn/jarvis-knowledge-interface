@@ -4,11 +4,11 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { resolve } from "node:path";
 
-const modelName = "ggml-large-v3-turbo-q5_0.bin";
+const modelName = "ggml-large-v3-q5_0.bin";
 const modelDirectory = resolve(process.cwd(), "models/whisper");
 const modelPath = resolve(modelDirectory, modelName);
 const partialPath = `${modelPath}.download`;
-const expectedBytes = 574_041_195;
+const expectedBytes = 1_081_140_203;
 const downloadUrl = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${modelName}`;
 
 try {
@@ -29,7 +29,7 @@ try {
   // The model has not been downloaded yet.
 }
 
-console.log("Downloading Whisper large-v3-turbo Q5 (574 MB)…");
+console.log("Downloading Whisper large-v3 Q5 (1.1 GB)…");
 const response = await fetch(downloadUrl, { redirect: "follow" });
 if (!response.ok || !response.body) {
   throw new Error(`Model download failed with HTTP ${response.status}.`);
