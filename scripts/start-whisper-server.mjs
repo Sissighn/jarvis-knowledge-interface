@@ -9,7 +9,7 @@ try {
   // Defaults keep the speech service usable without a local environment file.
 }
 
-const modelSetting = process.env.WHISPER_MODEL_PATH || "models/whisper/ggml-large-v3-turbo-q5_0.bin";
+const modelSetting = process.env.WHISPER_MODEL_PATH || "models/whisper/ggml-large-v3-q5_0.bin";
 const modelPath = isAbsolute(modelSetting) ? modelSetting : resolve(process.cwd(), modelSetting);
 const executable = process.env.WHISPER_SERVER_BIN || "/opt/homebrew/bin/whisper-server";
 const port = process.env.WHISPER_PORT || "8178";
@@ -28,8 +28,12 @@ const server = spawn(executable, [
   "--port", port,
   "--language", process.env.WHISPER_LANGUAGE || "de",
   "--threads", "6",
+  // Greedy decoding is what makes Whisper invent plausible German out of an unclear word.
+  "--beam-size", "5",
   "--convert",
-  "--prompt", "JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning",
+  // Keep in sync with the prompt in features/speech/server/whisper.ts, which overrides this
+  // one per request. Names are what the model has no chance of guessing.
+  "--prompt", "Setayesh, JARVIS, Codex, ChatGPT, Notion, Ollama, Qwen, GitHub, TypeScript, Machine Learning, Reinforcement Learning",
 ], { stdio: "inherit" });
 
 server.on("error", (error) => {
