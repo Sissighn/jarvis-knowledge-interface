@@ -419,12 +419,14 @@ export function useVoiceAssistant() {
     }
   }, [refreshLocalStatus]);
 
+  // The action layer serves an already curated list; the browser list still has to be reduced.
+  const offeredVoices = nativeVoices.length ? nativeVoices : curatedVoices(voices);
+
   return {
     phase,
     speechActivity,
     active,
-    // The action layer reaches the premium voices; the browser list is the fallback.
-    curatedVoices: nativeVoices.length ? nativeVoices : curatedVoices(voices),
+    curatedVoices: offeredVoices,
     transcript,
     reply,
     steps,
@@ -434,7 +436,7 @@ export function useVoiceAssistant() {
     voices,
     voiceOutputSupported: voiceOutputSupported || nativeVoices.length > 0,
     // The resolved voice is shown in the panel so a silent fallback never goes unnoticed.
-    activeVoice: resolveVoice(nativeVoices.length ? nativeVoices : voices, settings),
+    activeVoice: resolveVoice(offeredVoices, settings),
     micSupported: recorder.supported,
     captureMode: recorder.captureMode,
     localStatus,
