@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, PointerEvent, useMemo, useState } from "react";
 import { dueBadge, dayTitle } from "@/features/todos/format";
-import { orderTodos, stepProgress, todoUrgency } from "@/features/todos/ordering";
+import { dueDay, dueTime, orderTodos, stepProgress, todoUrgency } from "@/features/todos/ordering";
 import type { TodoItem, TodoUrgency } from "@/features/todos/types";
 import type { TodoController } from "../hooks/useTodos";
 
@@ -15,6 +15,10 @@ type TodoBoardProps = {
 };
 
 type Scope = "all" | "today" | "overdue";
+/** The line the drop would leave the card on, drawn above or below the card under the pointer. */
+type DropMark = { id: string; place: "before" | "after" };
+/** The card in the hand and the group it came from, because a card is only dropped in its group. */
+type Dragging = { id: string; urgency: TodoUrgency };
 
 const GROUPS: Array<{ urgency: TodoUrgency; label: string }> = [
   { urgency: "overdue", label: "ÜBERFÄLLIG" },
@@ -45,27 +49,113 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
   const [stepDraft, setStepDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState("");
   const [showDone, setShowDone] = useState(false);
+  const [dragging, setDragging] = useState<Dragging | null>(null);
+  const [dropMark, setDropMark] = useState<DropMark | null>(null);
+  const [editId, setEditId] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editDay, setEditDay] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editCategory, setEditCategory] = useState("");
 
   const { counts, now, busyId } = todos;
   const composeDay = day || selectedDay;
 
-  const visibleTodos = useMemo(() => {
-    const scoped = todos.todos.filter((todo) => {
-      if (activeCategory && todo.category !== activeCategory) return false;
-      if (selectedDay && todo.due.slice(0, 10) !== selectedDay) return false;
-      if (scope === "all") return true;
-      const urgency = todoUrgency(todo, now);
-      if (scope === "overdue") return urgency === "overdue";
-      return urgency === "today" || urgency === "overdue";
-    });
-    return orderTodos(scoped, now);
-  }, [todos.todos, activeCategory, selectedDay, scope, now]);
+  const scoped = useMemo(() => todos.todos.filter((todo) => {
+    if (activeCategory && todo.category !== activeCategory) return false;
+    if (selectedDay && todo.due.slice(0, 10) !== selectedDay) return false;
+    if (scope === "all") return true;
+    const urgency = todoUrgency(todo, now);
+    if (scope === "overdue") return urgency === "overdue";
+    return urgency === "today" || urgency === "overdue";
+  }), [todos.todos, activeCategory, selectedDay, scope, now]);
+
+  const visibleTodos = useMemo(() => orderTodos(scoped, now), [scoped, now]);
 
   const groups = GROUPS.map((group) => ({
     ...group,
     items: visibleTodos.filter((todo) => todoUrgency(todo, now) === group.urgency),
   })).filter((group) => group.items.length);
   const doneItems = visibleTodos.filter((todo) => todo.done);
+
+  /**
+   * A card is dropped among its own kind. Which group a task sits in is its deadline talking,
+   * not a preference — a different group is a different date, and that is what editing is for.
+   */
+  const accepts = (target: TodoItem) => Boolean(dragging)
+    && dragging?.id !== target.id
+    && !target.done
+    && todoUrgency(target, now) === dragging?.urgency;
+
+  /**
+   * The move runs on pointer events rather than on HTML5 drag and drop: the grip is a button, and
+   * a button never starts a native drag in the WebView the app is packaged in.
+   */
+  const startDrag = (event: PointerEvent<HTMLButtonElement>, todo: TodoItem) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    // Without this the press would select the text of the card instead of taking it along.
+    event.preventDefault();
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging({ id: todo.id, urgency: todoUrgency(todo, now) });
+    setDropMark(null);
+  };
+
+  /** The card under the pointer decides the mark: above its middle in front of it, below behind. */
+  const trackDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!dragging) return;
+    const card = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-todo-id]");
+    const target = card ? todos.todos.find((entry) => entry.id === card.dataset.todoId) : undefined;
+    if (!card || !target || !accepts(target)) {
+      setDropMark(null);
+      return;
+    }
+    const box = card.getBoundingClientRect();
+    const place: DropMark["place"] = event.clientY > box.top + box.height / 2 ? "after" : "before";
+    setDropMark((current) => (current?.id === target.id && current.place === place ? current : { id: target.id, place }));
+  };
+
+  /** Let go over a card of the same group and the move counts; anywhere else it is called off. */
+  const endDrag = () => {
+    const moved = dragging?.id;
+    const mark = dropMark;
+    setDragging(null);
+    setDropMark(null);
+    if (moved && mark) void todos.reorder(moved, mark.id, mark.place);
+  };
+
+  /** The same move without a mouse: the grip walks the card through its group. */
+  const moveByKey = (event: KeyboardEvent<HTMLButtonElement>, siblings: TodoItem[], index: number) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const up = event.key === "ArrowUp";
+    const neighbour = siblings[up ? index - 1 : index + 1];
+    if (!neighbour) return;
+    event.preventDefault();
+    void todos.reorder(siblings[index].id, neighbour.id, up ? "before" : "after");
+  };
+
+  /** Editing starts from what the task says right now, split into the fields of the form. */
+  const startEdit = (todo: TodoItem) => {
+    setEditId(todo.id);
+    setEditTitle(todo.title);
+    setEditDay(dueDay(todo.due));
+    setEditTime(dueTime(todo.due));
+    setEditCategory(todo.category);
+    setConfirmingId("");
+  };
+
+  const saveEdit = (event: FormEvent, todo: TodoItem) => {
+    event.preventDefault();
+    const text = editTitle.trim();
+    if (!text) return;
+    setEditId("");
+    void todos.update(todo.id, {
+      title: text,
+      // An empty date field is a deadline the user dropped on purpose.
+      due: composedDue(editDay, editTime, now) || null,
+      exact: true,
+      category: editCategory.trim(),
+    });
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -87,18 +177,38 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
     setStepDraft("");
   };
 
-  const renderTodo = (todo: TodoItem) => {
+  /** `siblings` is the group the card is rendered in — the stretch it can be dragged along. */
+  const renderTodo = (todo: TodoItem, siblings: TodoItem[] = []) => {
     const urgency = todoUrgency(todo, now);
     const progress = stepProgress(todo);
     const open = openId === todo.id;
     const busy = busyId === todo.id;
+    const editing = editId === todo.id;
+    const sortable = !todo.done && siblings.length > 1;
+    const mark = dropMark?.id === todo.id && accepts(todo) ? dropMark.place : "";
 
     return (
       <article
-        className={`todo-card ${todo.done ? "is-done" : ""} ${urgency === "overdue" ? "is-overdue" : ""} ${todo.important ? "is-important" : ""}`}
+        className={`todo-card ${todo.done ? "is-done" : ""} ${urgency === "overdue" ? "is-overdue" : ""} ${todo.important ? "is-important" : ""} ${sortable ? "is-sortable" : ""} ${dragging?.id === todo.id ? "is-dragging" : ""} ${mark ? `is-drop-${mark}` : ""}`}
         key={todo.id}
+        data-todo-id={todo.id}
       >
         <div className="todo-line">
+          {sortable ? (
+            <button
+              className="todo-grip"
+              type="button"
+              aria-label={`${todo.title} verschieben`}
+              title="Ziehen — oder mit ↑ und ↓ verschieben"
+              onPointerDown={(event) => startDrag(event, todo)}
+              onPointerMove={trackDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onKeyDown={(event) => moveByKey(event, siblings, siblings.indexOf(todo))}
+            >
+              ⠿
+            </button>
+          ) : null}
           <button
             className="todo-check"
             type="button"
@@ -118,6 +228,7 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
                 setOpenId(open ? "" : todo.id);
                 setStepDraft("");
                 setConfirmingId("");
+                setEditId("");
               }}
             >
               {todo.title}
@@ -136,7 +247,37 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
           </div>
         </div>
 
-        {open ? (
+        {open && editing ? (
+          <form className="todo-detail todo-edit" onSubmit={(event) => saveEdit(event, todo)}>
+            <input
+              value={editTitle}
+              aria-label="Aufgabe"
+              maxLength={160}
+              autoFocus
+              onChange={(event) => setEditTitle(event.target.value)}
+            />
+            <div className="todo-edit-row">
+              <input type="date" value={editDay} aria-label="Fällig am" onChange={(event) => setEditDay(event.target.value)} />
+              <input type="time" value={editTime} aria-label="Uhrzeit" onChange={(event) => setEditTime(event.target.value)} />
+              <input
+                value={editCategory}
+                placeholder="Kategorie"
+                aria-label="Kategorie"
+                maxLength={40}
+                onChange={(event) => setEditCategory(event.target.value)}
+              />
+            </div>
+            <div className="todo-actions">
+              <button type="submit" className="is-active" disabled={busy || !editTitle.trim()}>SPEICHERN</button>
+              <button type="button" onClick={() => setEditId("")}>ABBRECHEN</button>
+              {editDay || editTime ? (
+                <button type="button" onClick={() => { setEditDay(""); setEditTime(""); }}>FRIST ENTFERNEN</button>
+              ) : null}
+            </div>
+          </form>
+        ) : null}
+
+        {open && !editing ? (
           <div className="todo-detail">
             {todo.steps.length ? (
               <ul className="todo-steps">
@@ -178,6 +319,7 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
             </form>
 
             <div className="todo-actions">
+              <button type="button" disabled={busy} onClick={() => startEdit(todo)}>BEARBEITEN</button>
               <button
                 type="button"
                 className={todo.important ? "is-active" : ""}
@@ -329,7 +471,7 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
             <span className={`todo-group-label ${group.urgency === "overdue" ? "is-alert" : ""}`}>
               {group.label} <b>{group.items.length}</b>
             </span>
-            {group.items.map(renderTodo)}
+            {group.items.map((item) => renderTodo(item, group.items))}
           </section>
         ))}
 
@@ -338,7 +480,7 @@ export function TodoBoard({ visible, todos, selectedDay, onSelectDay }: TodoBoar
             <button className="todo-group-label" type="button" aria-expanded={showDone} onClick={() => setShowDone((current) => !current)}>
               ERLEDIGT <b>{showDone ? "▾" : "▸"} {doneItems.length}</b>
             </button>
-            {showDone ? doneItems.map(renderTodo) : null}
+            {showDone ? doneItems.map((item) => renderTodo(item)) : null}
             {showDone ? (
               <div className="todo-actions">
                 <button
