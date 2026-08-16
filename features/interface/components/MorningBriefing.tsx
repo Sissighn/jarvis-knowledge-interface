@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { openExternalUrl } from "@/features/desktop/links";
 import type { BriefingItem, DailyBriefing, ViewMode } from "../types";
 
 function formatBriefingAge(date: string) {
@@ -30,6 +34,11 @@ export function MorningBriefing({
   onHide,
   onToggleSaved,
 }: MorningBriefingProps) {
+  // A link that cannot be opened has to say so; a silent click is what made this feel broken.
+  const [linkError, setLinkError] = useState("");
+
+  const openArticle = async (url: string) => setLinkError(await openExternalUrl(url));
+
   const renderGroup = (label: string, items: BriefingItem[]) => items.length ? (
     <section className="briefing-group" aria-label={label}>
       <span className="briefing-section-label">{label}</span>
@@ -45,7 +54,7 @@ export function MorningBriefing({
             {item.matchedTopics.slice(0, 2).map((topic) => <span key={topic}>{topic}</span>)}
           </div>
           <div className="briefing-actions">
-            <button onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}>ÖFFNEN ↗</button>
+            <button onClick={() => void openArticle(item.url)}>ÖFFNEN ↗</button>
             <button className={savedIds.includes(item.id) ? "is-saved" : ""} onClick={() => onToggleSaved(item.id)}>
               {savedIds.includes(item.id) ? "GEMERKT ✓" : "MERKEN"}
             </button>
@@ -77,6 +86,7 @@ export function MorningBriefing({
         {briefing && !visibleItems.length && !error ? (
           <div className="briefing-empty"><strong>Heute kein Rauschen.</strong><p>Keine Meldung hat den Relevanzfilter passiert oder du hast alle ausgeblendet.</p></div>
         ) : null}
+        {linkError ? <p className="briefing-link-error" role="alert">{linkError}</p> : null}
         {renderGroup("WICHTIG FÜR DICH", importantItems)}
         {renderGroup("WISSENSWERT", usefulItems)}
         {briefing ? (
