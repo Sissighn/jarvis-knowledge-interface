@@ -388,6 +388,7 @@ button { color: inherit; }
 .briefing-error, .briefing-empty { margin-top: 16px; padding: 14px; border: 1px solid rgba(255, 211, 232, .11); background: rgba(255, 211, 232, .03); }
 .briefing-error p, .briefing-empty p { margin: 0 0 10px; color: #b8a7af; font-size: 10.5px; line-height: 1.55; }
 .briefing-empty strong { display: block; margin-bottom: 6px; color: #f4dce7; font-size: 12px; font-weight: 450; }
+.briefing-link-error { margin: 14px 0 0; color: #e8a9c2; font: 9px/1.5 var(--font-geist-mono), monospace; letter-spacing: .06em; }
 .briefing-sources { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--line); color: #917c86; font: 8px/1.4 var(--font-geist-mono), monospace; letter-spacing: .1em; }
 
 .mode-switcher {
